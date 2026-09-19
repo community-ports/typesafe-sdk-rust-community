@@ -30,6 +30,11 @@ GitHub Actions are pinned to commit SHAs and Dependabot keeps the pins current.
 
 ## Releasing
 
-1. Bump `version` in `Cargo.toml` and move the `[Unreleased]` notes into a new section.
-2. Commit, tag `vX.Y.Z`, and push the tag.
-3. `cargo publish` (once the crate is on crates.io).
+Releases go through crates.io Trusted Publishing; no registry token is stored anywhere.
+
+1. Bump `version` in `Cargo.toml` and move the `[Unreleased]` notes into a `## [X.Y.Z] - date`
+   section in `CHANGELOG.md`. Commit and push to `main`.
+2. Create a signed tag and push it: `git tag -s vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`.
+3. The `Release` workflow checks the tag against `Cargo.toml` and the changelog, waits for a
+   maintainer to approve the `release` environment, runs the tests, publishes with an OIDC
+   token, and creates the GitHub release from the changelog section.

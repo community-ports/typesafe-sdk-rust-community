@@ -27,3 +27,5 @@ to TypeSafe AI directly at <support@typesafe.ai>.
   `TYPESAFE_BASE_URL` at another host sends your key there.
 - Dependencies are monitored by Dependabot, Socket, and `cargo-deny`
   (RustSec advisories and a license allow-list) in CI.
+- Releases are published to crates.io through Trusted Publishing (OIDC) from a signed
+  tag, gated by maintainer approval; there is no long-lived registry token.
