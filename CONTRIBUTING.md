@@ -33,8 +33,10 @@ GitHub Actions are pinned to commit SHAs and Dependabot keeps the pins current.
 Releases go through crates.io Trusted Publishing; no registry token is stored anywhere.
 
 1. Bump `version` in `Cargo.toml` and `macros/Cargo.toml` (the main crate pins the macros
-   crate with `=X.Y.Z`, so they move together) and move the `[Unreleased]` notes into a
-   `## [X.Y.Z] - date` section in `CHANGELOG.md`. Commit and push to `main`.
+   crate with `=X.Y.Z`, so they move together), update the install snippets in `README.md` to
+   the new minor version, and move the `[Unreleased]` notes into a `## [X.Y.Z] - date` section
+   in `CHANGELOG.md`. Commit and push to `main`. The release workflow refuses a tag whose
+   README, changelog, or crate versions disagree.
 2. Create a signed tag and push it: `git tag -s vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`.
 3. The `Release` workflow checks the tag against both `Cargo.toml` files and the changelog,
    waits for a maintainer to approve the `release` environment, runs the tests, publishes the

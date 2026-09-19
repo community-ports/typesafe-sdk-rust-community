@@ -36,7 +36,7 @@ Both crates share one version and are released together.
 
 ```toml
 [dependencies]
-typesafeai-sdk-community = "0.1"
+typesafeai-sdk-community = "0.3"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -390,7 +390,7 @@ match client.system_one("...").question("q", Noul::new("?")).send().await {
 Enable the `blocking` feature for a synchronous client with the same API:
 
 ```toml
-typesafeai-sdk-community = { version = "0.1", features = ["blocking"] }
+typesafeai-sdk-community = { version = "0.3", features = ["blocking"] }
 ```
 
 ```rust

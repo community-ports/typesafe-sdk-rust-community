@@ -39,6 +39,17 @@ jobs:
             echo "macros/Cargo.toml version $macros does not match $version"; exit 1
           fi
           grep -q "^## \[$version\]" CHANGELOG.md || { echo "CHANGELOG.md has no section for $version"; exit 1; }
+          # README install snippets must name the current minor version.
+          minor="${version%.*}"
+          snippets="$(grep -E 'typesafeai-sdk-community = (\{ version = )?"[0-9]+\.[0-9]+"' README.md || true)"
+          if [ -z "$snippets" ]; then
+            echo "README.md has no install snippet naming a version"; exit 1
+          fi
+          if printf '%s
+' "$snippets" | grep -vq "\"$minor\""; then
+            echo "README.md install snippets do not all use version \"$minor\":"; printf '%s
+' "$snippets"; exit 1
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   publish:
