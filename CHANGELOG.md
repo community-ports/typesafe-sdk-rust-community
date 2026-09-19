@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-19
+
+### Fixed
+
+- README install snippets on crates.io named `0.1`; they now track the current minor version,
+  and the release workflow refuses a tag whose README is stale.
+
 ## [0.3.0] - 2026-09-19
 
 Typed routing, composite scoring, and a testing story.
@@ -87,7 +94,8 @@ Initial port of [typesafe-sdk-python](https://github.com/typesafe-ai/typesafe-sd
 - `X-TypeSafe-SDK`, `X-TypeSafe-Runtime` (runtime-detected OS and architecture), and
   `User-Agent` identification headers.
 
-[Unreleased]: https://github.com/community-ports/typesafeai-sdk-rust-community/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/community-ports/typesafeai-sdk-rust-community/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/community-ports/typesafeai-sdk-rust-community/releases/tag/v0.3.1
 [0.3.0]: https://github.com/community-ports/typesafeai-sdk-rust-community/releases/tag/v0.3.0
 [0.2.0]: https://github.com/community-ports/typesafeai-sdk-rust-community/releases/tag/v0.2.0
 [0.1.0]: https://github.com/community-ports/typesafeai-sdk-rust-community/releases/tag/v0.1.0

@@ -1,6 +1,6 @@
 [package]
 name = "typesafeai-sdk-community-macros"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 rust-version = "1.88"
 description = "Derive macros for typesafeai-sdk-community: typed choice labels, score levels, and question sets."
