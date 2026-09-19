@@ -218,3 +218,102 @@ async fn find_uses_one_request() {
 
     assert!(mock.client().find("q", Vec::<String>::new()).run().await.is_err());
 }
+
+#[tokio::test]
+async fn evaluate_runs_examples_and_reports() {
+    use typesafeai_sdk_community::eval::Example;
+    use typesafeai_sdk_community::typed::{ChoiceLabels as _, ScoreLevels as _};
+    use typesafeai_sdk_community::{ChoiceLabels, ScoreLevels, TypedChoice, TypedScore};
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, ChoiceLabels)]
+    enum Tone {
+        Angry,
+        Calm,
+    }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, ScoreLevels)]
+    enum Urgency {
+        Low,
+        High,
+    }
+    #[derive(Debug, Questions)]
+    struct Full {
+        #[noul("Billing?")]
+        billing: NoulAnswer,
+        #[choice("Tone?")]
+        tone: TypedChoice<Tone>,
+        #[score("Urgency?")]
+        urgency: TypedScore<Urgency>,
+    }
+
+    let mock = MockTransport::new();
+    for (p, tone, urgency) in
+        [(0.9, Tone::Angry, Urgency::High), (0.2, Tone::Calm, Urgency::Low), (0.7, Tone::Calm, Urgency::High)]
+    {
+        mock.enqueue(
+            MockResponse::answers()
+                .noul("billing", p)
+                .choice_typed_with(
+                    "tone",
+                    [(tone, 0.8), (if tone == Tone::Angry { Tone::Calm } else { Tone::Angry }, 0.2)],
+                )
+                .score_typed("urgency", urgency)
+                .usage(7, 1),
+        );
+    }
+    mock.enqueue(MockResponse::error(500, "down"));
+
+    // Labels are (billing, tone, urgency); the last example fails.
+    let examples = vec![
+        Example::new(json!({"m": 1}), (true, Tone::Angry, Urgency::High)),
+        Example::new(json!({"m": 2}), (false, Tone::Calm, Urgency::Low)),
+        Example::new(json!({"m": 3}), (true, Tone::Angry, Urgency::High)),
+        Example::new(json!({"m": 4}), (false, Tone::Calm, Urgency::Low)),
+    ];
+    let run = mock.client().evaluate::<Full, _>(examples).concurrency(1).run().await;
+    assert_eq!(run.results.len(), 3);
+    assert_eq!(run.errors.len(), 1);
+    assert_eq!(run.errors[0].0, 3);
+    assert_eq!(run.usage.input_tokens, Some(21));
+
+    // Project labels for each report type.
+    let binary = typesafeai_sdk_community::eval::binary(run.results.iter().map(|(a, l)| (a.billing.noul, l.0)));
+    assert_eq!(binary.n, 3);
+    assert_eq!(binary.positives, 2);
+    assert!(binary.auc > 0.99);
+
+    let choice = typesafeai_sdk_community::eval::choice(
+        run.results
+            .iter()
+            .map(|(a, l)| (a.tone.choice.label().to_string(), a.tone.confidence, l.1.label().to_string())),
+    );
+    assert!((choice.accuracy - 2.0 / 3.0).abs() < 1e-9);
+    assert_eq!(choice.per_label["angry"].support, 2);
+
+    let score = typesafeai_sdk_community::eval::score(
+        run.results
+            .iter()
+            .map(|(a, l)| (a.urgency.score, a.urgency.most_likely.level(), a.urgency.confidence, l.2.level())),
+    );
+    assert_eq!(score.exact, 1.0);
+
+    // The run-level helpers with simple labels.
+    let mock = MockTransport::new();
+    mock.enqueue(
+        MockResponse::answers()
+            .noul("billing", 0.9)
+            .choice_typed("tone", Tone::Angry)
+            .score_typed("urgency", Urgency::High),
+    );
+    mock.enqueue(
+        MockResponse::answers()
+            .noul("billing", 0.1)
+            .choice_typed("tone", Tone::Calm)
+            .score_typed("urgency", Urgency::Low),
+    );
+    let run = mock.client().evaluate::<Full, bool>([("a", true), ("b", false)]).run().await;
+    let report = run.binary(|full| full.billing.noul);
+    assert!((report.brier - 0.01).abs() < 1e-9);
+    let run = mock.client().evaluate::<Full, Tone>([("a", Tone::Angry)]).run().await;
+    assert_eq!(run.results.len(), 0); // queue exhausted: the request failed with a 599
+    assert_eq!(run.errors.len(), 1);
+}
