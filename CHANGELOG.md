@@ -6,6 +6,35 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-19
+
+Batching, state path checks, a response cache, and an evaluation harness.
+
+### Added
+
+- `client.batch::<T>(states)`: bounded concurrency, results aligned to inputs as individual
+  `Result`s, `on_progress`, usage totals, and one shared `Retry-After` pause for the whole
+  batch (`Pacer` / `PacedTransport`, reusable across batches and clients).
+- `client.rerank(query, candidates)` (yes/no or `.graded(..)` relevance, `top`, lenient mode)
+  and `client.find(query, items)` (the line-search cookbook in one request).
+- State path checks: `.check_paths()` per call, `ClientBuilder::check_paths(true)` for every
+  request, `Questions::check_paths(&state)`, and `Error::StatePath` naming the question and
+  path. On by default for the mock client. The `state` module exposes `check`, `resolve`, and
+  `referenced_paths`.
+- The `cache` module: `Cache::in_memory(n).ttl(..)` on the client builder, `.cache_scope(..)`,
+  `.refresh()`, `.no_cache()` per call, `Cache::key(..)` for custom keys, the `CacheStore`
+  trait for external stores, `cache.stats()`, and `ResponseMeta::from_cache`.
+- The `eval` module: `client.evaluate::<T, L>(examples)`, `EvalRun::binary/choice/score`, and
+  the standalone `binary`, `choice`, `score` metric functions with `Display` and `Serialize`
+  reports; `ChoiceReport::suggest_gate` and `ScoreReport::suggest_gate`.
+- `examples/batch.rs`.
+
+### Changed
+
+- The retry loop now returns the raw successful response and decoding happens afterwards;
+  observable behavior is unchanged.
+- `futures-util` is a new dependency (for bounded concurrency).
+
 ## [0.3.1] - 2026-09-19
 
 ### Fixed
@@ -94,7 +123,8 @@ Initial port of [typesafe-sdk-python](https://github.com/typesafe-ai/typesafe-sd
 - `X-TypeSafe-SDK`, `X-TypeSafe-Runtime` (runtime-detected OS and architecture), and
   `User-Agent` identification headers.
 
-[Unreleased]: https://github.com/community-ports/typesafeai-sdk-rust-community/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/community-ports/typesafeai-sdk-rust-community/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/community-ports/typesafeai-sdk-rust-community/releases/tag/v0.4.0
 [0.3.1]: https://github.com/community-ports/typesafeai-sdk-rust-community/releases/tag/v0.3.1
 [0.3.0]: https://github.com/community-ports/typesafeai-sdk-rust-community/releases/tag/v0.3.0
 [0.2.0]: https://github.com/community-ports/typesafeai-sdk-rust-community/releases/tag/v0.2.0

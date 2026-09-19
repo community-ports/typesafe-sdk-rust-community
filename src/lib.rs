@@ -45,7 +45,10 @@
 //! Enums can be choice labels and score rubrics, and a struct can be a whole question set; see
 //! the [`typed`] module. [`Route`] adds typed routing (function calling), [`Composite`] weighted
 //! scoring (the [`composite`] module), and the [`decision`] module turns probabilities into
-//! decisions. The `testing` module (feature `test-util`) mocks all of it without a network.
+//! decisions. The [`batch`] module runs many states concurrently (with reranking and line
+//! search), the [`state`] module checks question paths against the state, the [`cache`] module
+//! skips repeated requests, and the [`eval`] module measures questions and thresholds on labeled
+//! data. The `testing` module (feature `test-util`) mocks all of it without a network.
 //!
 //! ```no_run
 //! use typesafeai_sdk_community::{ChoiceLabels, NoulAnswer, Questions, TypeSafeClient, TypedChoice};

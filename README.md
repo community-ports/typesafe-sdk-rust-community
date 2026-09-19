@@ -18,8 +18,11 @@ On top of the official surface, the community edition adds what the docs tell yo
 yourself: derive macros that make Rust enums and structs the questions and answers
 ([Typed questions](#typed-questions)), typed function calling ([Routing](#routing)), weighted
 scoring you can retune without new requests ([Composite scoring](#composite-scoring)), helpers
-that turn probabilities into decisions ([Decisions](#decisions)), and a mock transport with
-generated fixtures for tests ([Testing](#testing)).
+that turn probabilities into decisions ([Decisions](#decisions)), a mock transport with
+generated fixtures for tests ([Testing](#testing)), concurrent batches with the reranking and
+line-search cookbooks ([Batch, rerank, and find](#batch-rerank-and-find)), state path checks,
+a response cache, and an evaluation harness for choosing thresholds on your own data
+([Evaluation](#evaluation)).
 
 This repository is one Cargo workspace that publishes two crates:
 
@@ -36,7 +39,7 @@ Both crates share one version and are released together.
 
 ```toml
 [dependencies]
-typesafeai-sdk-community = "0.3"
+typesafeai-sdk-community = "0.4"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -271,6 +274,81 @@ mock.enqueue(Intent::mock().refund().refund_full_amount(1.0));
 that `MockTransport::replay` plays back, for tests that should track real API behavior without
 calling it every run. `Transport` is public, so the same seam takes your own HTTP stack.
 
+## Batch, rerank, and find
+
+The API batches questions, not states: judging 500 tickets is 500 requests. `batch` runs them
+with bounded concurrency, keeps every result in input order as its own `Ok`/`Err`, and when any
+request is rate limited it pauses all of them until `Retry-After` elapses instead of letting
+eight tasks retry into the same limit:
+
+```rust
+let outcome = client.batch::<Triage>(tickets).concurrency(8).on_progress(|p| eprintln!("{}/{}", p.completed, p.total)).run().await;
+for (index, triage) in outcome.ok() { /* results[index] belongs to tickets[index] */ }
+println!("{} failed, {} input tokens", outcome.failed(), outcome.usage.input_tokens.unwrap_or(0));
+```
+
+Two cookbook patterns come built on it. `rerank` asks one relevance question per candidate and
+sorts (yes/no by default, or a graded rubric with `.graded(..)`); `find` puts every item in a
+single request and asks which one matches, the cheaper shape when the items are small:
+
+```rust
+let hits = client.rerank("How long does a refund take?", passages).top(5).run().await?;
+let found = client.find("When can I cancel?", lines).run().await?;
+if let Some(index) = found.best(0.5) { /* lines[index] */ }
+```
+
+## State path checks
+
+Questions point at parts of the state with backticked paths like `` `ticket.messages[0].text` ``.
+When a field is renamed, those references silently point at nothing. Turn on the check per
+call with `.check_paths()` or for every request with `ClientBuilder::check_paths(true)`, and a
+request whose questions reference a path the state does not contain fails with
+`Error::StatePath` before anything is sent. The mock client enables it by default, so tests
+catch it.
+
+## Response cache
+
+Same model, same state, same questions gives the same answer, so repeated requests can skip
+the API:
+
+```rust
+use typesafeai_sdk_community::cache::Cache;
+
+let client = TypeSafeClient::builder()
+    .cache(Cache::in_memory(10_000).ttl(Duration::from_secs(3600)))
+    .build()?;
+
+client.ask::<Triage>(state).cache_scope("tenant-42").await?;   // scope adds a key dimension
+client.ask::<Triage>(state).refresh().await?;                  // skip the read, store the result
+client.ask::<Triage>(state).no_cache().await?;                 // bypass entirely
+```
+
+Keys hash the canonical request (model, state, questions) plus the scope; `Cache::key(..)`
+replaces the key function and `CacheStore` is a trait for Redis, disk, or anything else. Hits
+carry `meta.from_cache` and keep the original request ID; errors and model listings are never
+cached; `cache.stats()` reports hits, misses, and stores.
+
+## Evaluation
+
+The docs say to validate judgments and pick thresholds on your own data. `evaluate` runs a
+question set over labeled examples and reports how the answers line up:
+
+```rust
+use typesafeai_sdk_community::eval::Example;
+
+let examples = rows.into_iter().map(|(text, is_spam)| Example::new(json!({"message": text}), is_spam));
+let run = client.evaluate::<Spam, bool>(examples).concurrency(8).run().await;
+let report = run.binary(|spam| spam.spam.noul);
+println!("{report}");                                  // Brier, log loss, AUC, ECE, calibration table
+let threshold = report.best_f1.threshold;              // or best_accuracy, or scan report.thresholds
+```
+
+`run.choice(..)` gives accuracy, per-label precision/recall/F1, a confusion matrix, confidence
+calibration, and `suggest_gate(0.95)`: the confidence at which everything accepted automatically
+is at least 95% accurate, as a `Gate`. `run.score(..)` gives MAE, RMSE, exact and within-one
+agreement. The metric functions (`eval::binary`, `choice`, `score`) also work on predictions you
+already have. Reports are `Display` and `Serialize`.
+
 ## Questions
 
 | Need | Primitive | Answer |
@@ -390,7 +468,7 @@ match client.system_one("...").question("q", Noul::new("?")).send().await {
 Enable the `blocking` feature for a synchronous client with the same API:
 
 ```toml
-typesafeai-sdk-community = { version = "0.3", features = ["blocking"] }
+typesafeai-sdk-community = { version = "0.4", features = ["blocking"] }
 ```
 
 ```rust
@@ -427,10 +505,11 @@ RUST_LOG=typesafeai_sdk_community=debug cargo run --example models
 
 ```
 Cargo.toml        typesafeai-sdk-community (the SDK)
-src/              client, transport, questions, responses, retry, errors, typed, decision, composite, testing
+src/              client, transport, questions, responses, retry, errors, typed, decision, composite,
+                  batch, state, cache, eval, testing
 macros/           typesafeai-sdk-community-macros (the derive macros)
 tests/            offline tests against a scripted mock server; live.rs self-skips without a key
-examples/         basic, typed, route, models, blocking
+examples/         basic, typed, route, batch, models, blocking
 ```
 
 Every command below runs across both crates:
