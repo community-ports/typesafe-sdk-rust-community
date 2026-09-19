@@ -20,9 +20,13 @@ CI runs the following on Linux, macOS, and Windows; please run them locally firs
 cargo fmt --all -- --check
 cargo clippy --all-features --all-targets -- -D warnings
 cargo clippy --no-default-features --features native-tls -- -D warnings
-cargo test --all-features
+cargo test --all-features --locked
 RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps
+cargo deny check   # cargo install cargo-deny
 ```
+
+`Cargo.lock` is committed so CI, Dependabot, and Socket see the exact dependency tree;
+GitHub Actions are pinned to commit SHAs and Dependabot keeps the pins current.
 
 ## Releasing
 

@@ -1,0 +1,28 @@
+version: 2
+updates:
+  # Rust dependencies: one grouped PR per week for minor/patch bumps; security
+  # updates are raised immediately regardless of schedule.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      cargo-minor-and-patch:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: deps
+
+  # Keep SHA-pinned GitHub Actions current; Dependabot updates the SHA and the
+  # version comment together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
