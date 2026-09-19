@@ -45,10 +45,8 @@ jobs:
           if [ -z "$snippets" ]; then
             echo "README.md has no install snippet naming a version"; exit 1
           fi
-          if printf '%s
-' "$snippets" | grep -vq "\"$minor\""; then
-            echo "README.md install snippets do not all use version \"$minor\":"; printf '%s
-' "$snippets"; exit 1
+          if printf '%s\n' "$snippets" | grep -vq "\"$minor\""; then
+            echo "README.md install snippets do not all use version \"$minor\":"; printf '%s\n' "$snippets"; exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
