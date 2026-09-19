@@ -308,6 +308,7 @@ fn blocking_route_and_mock() {
 }
 
 #[derive(Debug, Questions)]
+#[allow(dead_code)]
 struct PathBound {
     #[noul("Is `ticket.message` about billing?")]
     billing: NoulAnswer,
