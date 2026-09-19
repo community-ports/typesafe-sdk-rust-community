@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/JSBtechnologies/typesafe-sdk-rust-community"
 homepage = "https://typesafe.ai"
 documentation = "https://docs.typesafe.ai/"
-keywords = ["typesafe", "sdk", "api", "ai", "jev"]
+keywords = ["typesafe", "typesafe-ai", "jev", "sdk", "ai"]
 categories = ["api-bindings", "web-programming::http-client"]
 exclude = [".github/", "docs/"]
 
