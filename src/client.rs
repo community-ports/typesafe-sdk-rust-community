@@ -144,6 +144,7 @@ struct Inner {
     config: Config,
     retry: RetryPolicy,
     transport: Arc<dyn Transport>,
+    cache: Option<crate::cache::Cache>,
 }
 
 /// An asynchronous HTTP client for the [TypeSafe AI API](https://typesafe.ai).
@@ -284,14 +285,21 @@ impl TypeSafeClient {
                 config: self.inner.config.clone(),
                 retry: self.inner.retry.clone(),
                 transport: Arc::new(transport),
+                cache: self.inner.cache.clone(),
             }),
         }
+    }
+
+    /// The response cache, if one was configured; see the [`cache`](crate::cache) module.
+    pub fn cache(&self) -> Option<&crate::cache::Cache> {
+        self.inner.cache.as_ref()
     }
 
     async fn dispatch<T: crate::transport::Decode>(
         &self,
         request: PreparedRequest,
         retry: Option<&RetryPolicy>,
+        cache: &crate::transport::CacheUse,
     ) -> Result<T> {
         let policy = match retry {
             Some(policy) => {
@@ -300,7 +308,15 @@ impl TypeSafeClient {
             }
             None => &self.inner.retry,
         };
-        send(self.inner.transport.as_ref(), request, policy).await
+        let key = match crate::transport::cache_lookup::<T>(self.inner.cache.as_ref(), &request, cache)? {
+            Ok(hit) => return Ok(hit),
+            Err(key) => key,
+        };
+        let raw = send(self.inner.transport.as_ref(), &request, policy).await?;
+        if let (Some(cache), Some(key)) = (&self.inner.cache, key) {
+            cache.store_response(key, &raw);
+        }
+        T::decode(&request, raw)
     }
 }
 
@@ -313,6 +329,7 @@ pub struct ClientBuilder {
     options: ClientOptions,
     http_client: Option<reqwest::Client>,
     transport: Option<Arc<dyn Transport>>,
+    cache: Option<crate::cache::Cache>,
 }
 
 impl ClientBuilder {
@@ -338,6 +355,13 @@ impl ClientBuilder {
         self
     }
 
+    /// Serve repeated System One requests from a [`Cache`](crate::cache::Cache) instead of
+    /// the API; see the [`cache`](crate::cache) module.
+    pub fn cache(mut self, cache: crate::cache::Cache) -> Self {
+        self.cache = Some(cache);
+        self
+    }
+
     /// Build the client.
     ///
     /// # Errors
@@ -356,7 +380,7 @@ impl ClientBuilder {
                     .map_err(|error| Error::Config(format!("Could not initialize the HTTP client: {error}")))?,
             )),
         };
-        Ok(TypeSafeClient { inner: Arc::new(Inner { config, retry, transport }) })
+        Ok(TypeSafeClient { inner: Arc::new(Inner { config, retry, transport, cache: self.cache }) })
     }
 }
 
@@ -371,6 +395,7 @@ pub(crate) struct SystemOneParams {
     headers: HeaderMap,
     extra_body: Map<String, Value>,
     check_paths: Option<bool>,
+    pub(crate) cache: crate::transport::CacheUse,
     error: Option<Error>,
 }
 
@@ -385,6 +410,7 @@ impl SystemOneParams {
             headers: HeaderMap::new(),
             extra_body: Map::new(),
             check_paths: None,
+            cache: crate::transport::CacheUse::default(),
             error: None,
         }
     }
@@ -489,6 +515,25 @@ impl<C> SystemOneRequest<'_, C> {
         self.params.check_paths = Some(false);
         self
     }
+
+    /// Add a dimension to the cache key for this call, such as a tenant or user, without
+    /// changing the request. Only meaningful when the client has a cache.
+    pub fn cache_scope(mut self, scope: impl Into<String>) -> Self {
+        self.params.cache.scope = Some(scope.into());
+        self
+    }
+
+    /// Skip the cache read for this call but store the fresh response.
+    pub fn refresh(mut self) -> Self {
+        self.params.cache.mode = crate::cache::CacheMode::Refresh;
+        self
+    }
+
+    /// Neither read from nor write to the cache for this call.
+    pub fn no_cache(mut self) -> Self {
+        self.params.cache.mode = crate::cache::CacheMode::Bypass;
+        self
+    }
 }
 
 impl<'a> SystemOneRequest<'a, TypeSafeClient> {
@@ -503,20 +548,23 @@ impl<'a> SystemOneRequest<'a, TypeSafeClient> {
     /// - [`Error::ResponseValidation`]: the response body did not match the expected schema.
     pub async fn send(mut self) -> Result<SystemOneResponse> {
         let request = self.params.prepare(&self.client.inner.config)?;
-        self.client.dispatch(request, self.params.retry.as_ref()).await
+        self.client.dispatch(request, self.params.retry.as_ref(), &self.params.cache).await
     }
 
     /// Send the request and decode the JSON body into any `serde` type describing the response,
     /// including any nested answer models.
     pub async fn send_as<T: DeserializeOwned>(mut self) -> Result<T> {
         let request = self.params.prepare(&self.client.inner.config)?;
-        self.client.dispatch::<Custom<T>>(request, self.params.retry.as_ref()).await.map(|custom| custom.0)
+        self.client
+            .dispatch::<Custom<T>>(request, self.params.retry.as_ref(), &self.params.cache)
+            .await
+            .map(|custom| custom.0)
     }
 
     /// Send the request and return the successful response undecoded.
     pub async fn send_raw(mut self) -> Result<RawResponse> {
         let request = self.params.prepare(&self.client.inner.config)?;
-        self.client.dispatch(request, self.params.retry.as_ref()).await
+        self.client.dispatch(request, self.params.retry.as_ref(), &self.params.cache).await
     }
 }
 
@@ -594,6 +642,24 @@ impl<'a, C, T: Questions> AskRequest<'a, C, T> {
     /// Skip the state path check for this call.
     pub fn skip_path_check(mut self) -> Self {
         self.inner = self.inner.skip_path_check();
+        self
+    }
+
+    /// Add a dimension to the cache key for this call; see [`SystemOneRequest::cache_scope`].
+    pub fn cache_scope(mut self, scope: impl Into<String>) -> Self {
+        self.inner = self.inner.cache_scope(scope);
+        self
+    }
+
+    /// Skip the cache read for this call but store the fresh response.
+    pub fn refresh(mut self) -> Self {
+        self.inner = self.inner.refresh();
+        self
+    }
+
+    /// Neither read from nor write to the cache for this call.
+    pub fn no_cache(mut self) -> Self {
+        self.inner = self.inner.no_cache();
         self
     }
 
@@ -692,6 +758,24 @@ impl<'a, C, T: Route> RouteRequest<'a, C, T> {
     /// Skip the state path check for this call.
     pub fn skip_path_check(mut self) -> Self {
         self.inner = self.inner.skip_path_check();
+        self
+    }
+
+    /// Add a dimension to the cache key for this call; see [`SystemOneRequest::cache_scope`].
+    pub fn cache_scope(mut self, scope: impl Into<String>) -> Self {
+        self.inner = self.inner.cache_scope(scope);
+        self
+    }
+
+    /// Skip the cache read for this call but store the fresh response.
+    pub fn refresh(mut self) -> Self {
+        self.inner = self.inner.refresh();
+        self
+    }
+
+    /// Neither read from nor write to the cache for this call.
+    pub fn no_cache(mut self) -> Self {
+        self.inner = self.inner.no_cache();
         self
     }
 
@@ -796,7 +880,7 @@ impl<'a> ListModelsRequest<'a, TypeSafeClient> {
     /// [`Error::ResponseValidation`], as for [`SystemOneRequest::send`].
     pub async fn send(mut self) -> Result<ListModelsResponse> {
         let request = self.params.prepare(&self.client.inner.config)?;
-        self.client.dispatch(request, self.params.retry.as_ref()).await
+        self.client.dispatch(request, self.params.retry.as_ref(), &crate::transport::CacheUse::default()).await
     }
 }
 

@@ -144,11 +144,13 @@ pub struct ResponseMeta {
     pub status: StatusCode,
     /// The HTTP response headers.
     pub headers: HeaderMap,
+    /// Whether the response was served from the client's cache instead of the API.
+    pub from_cache: bool,
 }
 
 impl ResponseMeta {
     pub(crate) fn new(status: StatusCode, headers: HeaderMap) -> Self {
-        ResponseMeta { status, headers }
+        ResponseMeta { status, headers, from_cache: false }
     }
 
     /// The `x-typesafe-request-id` response header, or `None` if absent.

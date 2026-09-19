@@ -352,3 +352,127 @@ async fn state_path_check() {
     assert_eq!(outcome.succeeded(), 1);
     assert!(matches!(outcome.results[1], Err(Error::StatePath(_))));
 }
+
+#[tokio::test]
+async fn response_cache() {
+    use typesafeai_sdk_community::cache::{Cache, CacheStats};
+
+    let mock = MockTransport::new();
+    mock.enqueue(MockResponse::answers().noul("billing", 0.9).request_id("first"))
+        .enqueue(MockResponse::answers().noul("billing", 0.1).request_id("second"))
+        .enqueue(MockResponse::error(500, "down"))
+        .enqueue(MockResponse::answers().noul("billing", 0.5).request_id("third"))
+        .enqueue(MockResponse::answers().noul("billing", 0.7).request_id("fourth"));
+    let cache = Cache::in_memory(100).ttl(Duration::from_secs(60));
+    let client = TypeSafeClient::builder()
+        .api_key("k")
+        .retry(RetryPolicy::none())
+        .transport(mock.clone())
+        .cache(cache.clone())
+        .build()
+        .unwrap();
+    fn ask(client: &TypeSafeClient) -> typesafeai_sdk_community::SystemOneRequest<'_, TypeSafeClient> {
+        client.system_one("same state").question("billing", Noul::new("Billing?"))
+    }
+
+    // Miss, then hit: same answer, same request ID, no second request.
+    let first = ask(&client).await.unwrap();
+    assert!(!first.meta.from_cache);
+    let hit = ask(&client).await.unwrap();
+    assert!(hit.meta.from_cache);
+    assert_eq!(hit.noul("billing").unwrap().noul, 0.9);
+    assert_eq!(hit.request_id(), Some("first"));
+    assert_eq!(mock.request_count(), 1);
+    assert_eq!(cache.stats(), CacheStats { hits: 1, misses: 1, stores: 1 });
+
+    // A different scope is a different key.
+    let scoped = ask(&client).cache_scope("tenant-b").await.unwrap();
+    assert!(!scoped.meta.from_cache);
+    assert_eq!(scoped.request_id(), Some("second"));
+    assert_eq!(mock.request_count(), 2);
+
+    // Errors are not cached: the next call for that scope goes out again.
+    let error = ask(&client).cache_scope("tenant-c").await.unwrap_err();
+    assert_eq!(error.status().unwrap().as_u16(), 500);
+    let after = ask(&client).cache_scope("tenant-c").await.unwrap();
+    assert_eq!(after.request_id(), Some("third"));
+    assert_eq!(mock.request_count(), 4);
+
+    // refresh() skips the read and replaces the entry; no_cache() touches nothing.
+    let refreshed = ask(&client).refresh().await.unwrap();
+    assert_eq!(refreshed.request_id(), Some("fourth"));
+    assert_eq!(ask(&client).await.unwrap().request_id(), Some("fourth"));
+    mock.enqueue(MockResponse::answers().noul("billing", 0.2).request_id("bypass"));
+    assert_eq!(ask(&client).no_cache().await.unwrap().request_id(), Some("bypass"));
+    assert_eq!(ask(&client).await.unwrap().request_id(), Some("fourth"));
+
+    // Typed requests and routes go through the same cache.
+    mock.enqueue(SpamRisk::mock().credentials(0.3).reward(0).tone(Tone::Calm).ignored(0.0));
+    let risk = client.ask::<SpamRisk>("same state").send_full().await.unwrap();
+    assert!(!risk.response.meta.from_cache);
+    let again = client.ask::<SpamRisk>("same state").send_full().await.unwrap();
+    assert!(again.response.meta.from_cache);
+    assert_eq!(again.credentials.noul, 0.3);
+
+    // Invalidate by key, and clear.
+    let request_count = mock.request_count();
+    cache.clear();
+    mock.enqueue(MockResponse::answers().noul("billing", 0.4).request_id("after-clear"));
+    assert_eq!(ask(&client).await.unwrap().request_id(), Some("after-clear"));
+    assert_eq!(mock.request_count(), request_count + 1);
+
+    // TTL expiry.
+    let short = Cache::in_memory(10).ttl(Duration::from_millis(5));
+    let client = TypeSafeClient::builder()
+        .api_key("k")
+        .retry(RetryPolicy::none())
+        .transport(mock.clone())
+        .cache(short)
+        .build()
+        .unwrap();
+    mock.enqueue(MockResponse::answers().noul("billing", 0.6).request_id("ttl-1"));
+    mock.enqueue(MockResponse::answers().noul("billing", 0.6).request_id("ttl-2"));
+    assert_eq!(ask(&client).await.unwrap().request_id(), Some("ttl-1"));
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    assert_eq!(ask(&client).await.unwrap().request_id(), Some("ttl-2"));
+
+    // Custom key: everything for a scope shares one entry.
+    let custom = Cache::in_memory(10).key(|input| format!("scope:{}", input.scope.unwrap_or("default")));
+    let client = TypeSafeClient::builder()
+        .api_key("k")
+        .retry(RetryPolicy::none())
+        .transport(mock.clone())
+        .cache(custom)
+        .build()
+        .unwrap();
+    mock.enqueue(MockResponse::answers().noul("billing", 0.8).request_id("custom"));
+    ask(&client).await.unwrap();
+    let other_state = client.system_one("different state").question("billing", Noul::new("Billing?")).await.unwrap();
+    assert!(other_state.meta.from_cache);
+    assert_eq!(other_state.request_id(), Some("custom"));
+
+    // Models listing is never cached.
+    mock.enqueue(MockResponse::models(["a"])).enqueue(MockResponse::models(["b"]));
+    assert_eq!(client.models().list().await.unwrap().models[0].name, "a");
+    assert_eq!(client.models().list().await.unwrap().models[0].name, "b");
+}
+
+#[cfg(feature = "blocking")]
+#[test]
+fn blocking_cache() {
+    use typesafeai_sdk_community::cache::Cache;
+    let mock = MockTransport::new();
+    mock.enqueue(MockResponse::answers().noul("q", 0.5).request_id("b1"));
+    let client = typesafeai_sdk_community::blocking::TypeSafeClient::builder()
+        .api_key("k")
+        .retry(RetryPolicy::none())
+        .transport(mock.clone())
+        .cache(Cache::in_memory(10))
+        .build()
+        .unwrap();
+    client.system_one("s").question("q", Noul::new("?")).send().unwrap();
+    let hit = client.system_one("s").question("q", Noul::new("?")).send().unwrap();
+    assert!(hit.meta.from_cache);
+    assert_eq!(mock.request_count(), 1);
+    assert_eq!(client.cache().unwrap().stats().hits, 1);
+}

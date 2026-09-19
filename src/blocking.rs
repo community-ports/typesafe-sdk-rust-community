@@ -42,6 +42,7 @@ struct Inner {
     config: Config,
     retry: RetryPolicy,
     transport: Arc<dyn BlockingTransport>,
+    cache: Option<crate::cache::Cache>,
 }
 
 /// A synchronous HTTP client for the [TypeSafe AI API](https://typesafe.ai).
@@ -118,7 +119,17 @@ impl TypeSafeClient {
         self.inner.transport.as_ref()
     }
 
-    fn dispatch<T: Decode>(&self, request: PreparedRequest, retry: Option<&RetryPolicy>) -> Result<T> {
+    /// The response cache, if one was configured; see the [`cache`](crate::cache) module.
+    pub fn cache(&self) -> Option<&crate::cache::Cache> {
+        self.inner.cache.as_ref()
+    }
+
+    fn dispatch<T: Decode>(
+        &self,
+        request: PreparedRequest,
+        retry: Option<&RetryPolicy>,
+        cache: &crate::transport::CacheUse,
+    ) -> Result<T> {
         let policy = match retry {
             Some(policy) => {
                 policy.validate()?;
@@ -126,7 +137,15 @@ impl TypeSafeClient {
             }
             None => &self.inner.retry,
         };
-        send_blocking(self.inner.transport.as_ref(), request, policy)
+        let key = match crate::transport::cache_lookup::<T>(self.inner.cache.as_ref(), &request, cache)? {
+            Ok(hit) => return Ok(hit),
+            Err(key) => key,
+        };
+        let raw = send_blocking(self.inner.transport.as_ref(), &request, policy)?;
+        if let (Some(cache), Some(key)) = (&self.inner.cache, key) {
+            cache.store_response(key, &raw);
+        }
+        T::decode(&request, raw)
     }
 }
 
@@ -139,6 +158,7 @@ pub struct ClientBuilder {
     options: ClientOptions,
     http_client: Option<reqwest::blocking::Client>,
     transport: Option<Arc<dyn BlockingTransport>>,
+    cache: Option<crate::cache::Cache>,
 }
 
 impl ClientBuilder {
@@ -164,6 +184,13 @@ impl ClientBuilder {
         self
     }
 
+    /// Serve repeated System One requests from a [`Cache`](crate::cache::Cache); see the
+    /// [`cache`](crate::cache) module.
+    pub fn cache(mut self, cache: crate::cache::Cache) -> Self {
+        self.cache = Some(cache);
+        self
+    }
+
     /// Build the client.
     ///
     /// # Errors
@@ -182,7 +209,7 @@ impl ClientBuilder {
                     .map_err(|error| Error::Config(format!("Could not initialize the HTTP client: {error}")))?,
             )),
         };
-        Ok(TypeSafeClient { inner: Arc::new(Inner { config, retry, transport }) })
+        Ok(TypeSafeClient { inner: Arc::new(Inner { config, retry, transport, cache: self.cache }) })
     }
 }
 
@@ -191,19 +218,21 @@ impl SystemOneRequest<'_, TypeSafeClient> {
     /// [`SystemOneRequest::send`](crate::SystemOneRequest::send) for the errors.
     pub fn send(mut self) -> Result<SystemOneResponse> {
         let request = self.params.prepare(&self.client.inner.config)?;
-        self.client.dispatch(request, self.params.retry.as_ref())
+        self.client.dispatch(request, self.params.retry.as_ref(), &self.params.cache)
     }
 
     /// Send the request and decode the JSON body into any `serde` type describing the response.
     pub fn send_as<T: DeserializeOwned>(mut self) -> Result<T> {
         let request = self.params.prepare(&self.client.inner.config)?;
-        self.client.dispatch::<Custom<T>>(request, self.params.retry.as_ref()).map(|custom| custom.0)
+        self.client
+            .dispatch::<Custom<T>>(request, self.params.retry.as_ref(), &self.params.cache)
+            .map(|custom| custom.0)
     }
 
     /// Send the request and return the successful response undecoded.
     pub fn send_raw(mut self) -> Result<RawResponse> {
         let request = self.params.prepare(&self.client.inner.config)?;
-        self.client.dispatch(request, self.params.retry.as_ref())
+        self.client.dispatch(request, self.params.retry.as_ref(), &self.params.cache)
     }
 }
 
@@ -238,6 +267,6 @@ impl ListModelsRequest<'_, TypeSafeClient> {
     /// Send the request.
     pub fn send(mut self) -> Result<ListModelsResponse> {
         let request = self.params.prepare(&self.client.inner.config)?;
-        self.client.dispatch(request, self.params.retry.as_ref())
+        self.client.dispatch(request, self.params.retry.as_ref(), &crate::transport::CacheUse::default())
     }
 }

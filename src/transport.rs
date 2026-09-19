@@ -150,6 +150,9 @@ pub(crate) fn map_reqwest_error(error: reqwest::Error, timeout: Duration) -> Err
 /// A response type the transport can produce from a raw HTTP response.
 pub(crate) trait Decode: Sized {
     fn decode(request: &PreparedRequest, raw: RawHttp) -> Result<Self>;
+
+    /// Flag a value as served from the cache; response types record it in their `meta`.
+    fn mark_cached(&mut self) {}
 }
 
 /// Any `serde` type decoded from the whole JSON body.
@@ -218,6 +221,10 @@ impl Decode for RawResponse {
         let raw = check_status(request, raw)?;
         Ok(RawResponse { meta: ResponseMeta::new(raw.status, raw.headers), body: raw.body })
     }
+
+    fn mark_cached(&mut self) {
+        self.meta.from_cache = true;
+    }
 }
 
 impl<T: DeserializeOwned> Decode for Custom<T> {
@@ -234,6 +241,10 @@ impl Decode for ListModelsResponse {
             decode_bytes(&raw.body).map_err(|path| validation_error(request, &raw, path))?;
         response.meta = ResponseMeta::new(raw.status, raw.headers);
         Ok(response)
+    }
+
+    fn mark_cached(&mut self) {
+        self.meta.from_cache = true;
     }
 }
 
@@ -282,6 +293,10 @@ impl Decode for SystemOneResponse {
             answers,
             meta: ResponseMeta::new(raw.status, raw.headers),
         })
+    }
+
+    fn mark_cached(&mut self) {
+        self.meta.from_cache = true;
     }
 }
 
@@ -446,21 +461,53 @@ pub(crate) fn error_kind(error: &reqwest::Error) -> &'static str {
     }
 }
 
+// --- Cache-aware decoding ---------------------------------------------------------------------
+
+/// Per-call cache settings carried by a request.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct CacheUse {
+    pub(crate) mode: crate::cache::CacheMode,
+    pub(crate) scope: Option<String>,
+}
+
+/// Try the cache before sending; returns the decoded hit, or the key to store under.
+pub(crate) fn cache_lookup<T: Decode>(
+    cache: Option<&crate::cache::Cache>,
+    request: &PreparedRequest,
+    usage: &CacheUse,
+) -> Result<std::result::Result<T, Option<String>>> {
+    use crate::cache::CacheMode;
+    let Some(cache) = cache else { return Ok(Err(None)) };
+    if usage.mode == CacheMode::Bypass || request.method != Method::POST {
+        return Ok(Err(None));
+    }
+    let key = cache.request_key(request, usage.scope.as_deref());
+    if usage.mode == CacheMode::Use
+        && let Some(raw) = cache.lookup(&key)
+    {
+        let mut value = T::decode(request, raw)?;
+        value.mark_cached();
+        return Ok(Ok(value));
+    }
+    Ok(Err(Some(key)))
+}
+
 // --- Send loops ---------------------------------------------------------------------------------
 
-pub(crate) async fn send<T: Decode>(
+/// Send with retries and return the successful (2xx) raw response; decoding is the caller's.
+pub(crate) async fn send(
     transport: &dyn Transport,
-    request: PreparedRequest,
+    request: &PreparedRequest,
     policy: &RetryPolicy,
-) -> Result<T> {
+) -> Result<RawHttp> {
     let started = Instant::now();
     let mut attempts = 0u32;
     loop {
         let attempt_started = Instant::now();
         let result = match transport.send(request.attempt(attempts)).await {
             Ok(raw) => {
-                raw.log_received(&request, attempt_started);
-                T::decode(&request, raw)
+                raw.log_received(request, attempt_started);
+                check_status(request, raw)
             }
             Err(error) => Err(error),
         };
@@ -478,19 +525,19 @@ pub(crate) async fn send<T: Decode>(
 }
 
 #[cfg(feature = "blocking")]
-pub(crate) fn send_blocking<T: Decode>(
+pub(crate) fn send_blocking(
     transport: &dyn BlockingTransport,
-    request: PreparedRequest,
+    request: &PreparedRequest,
     policy: &RetryPolicy,
-) -> Result<T> {
+) -> Result<RawHttp> {
     let started = Instant::now();
     let mut attempts = 0u32;
     loop {
         let attempt_started = Instant::now();
         let result = match transport.send(request.attempt(attempts)) {
             Ok(raw) => {
-                raw.log_received(&request, attempt_started);
-                T::decode(&request, raw)
+                raw.log_received(request, attempt_started);
+                check_status(request, raw)
             }
             Err(error) => Err(error),
         };

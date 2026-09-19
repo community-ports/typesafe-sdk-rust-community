@@ -103,6 +103,7 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub mod batch;
+pub mod cache;
 pub mod composite;
 pub mod constants;
 pub mod decision;
