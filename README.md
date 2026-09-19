@@ -14,6 +14,20 @@ TypeSafe's **System One** models (Jev is the flagship) return fast, typed judgme
 generated text. Learn what TypeSafe is and how to design questions in the
 [TypeSafe docs](https://docs.typesafe.ai/).
 
+On top of the official surface, the community edition adds what the docs tell you to build
+yourself: derive macros that make Rust enums and structs the questions and answers
+([Typed questions](#typed-questions)), and helpers that turn probabilities into decisions
+([Decisions](#decisions)).
+
+This repository is one Cargo workspace that publishes two crates:
+
+| Crate | What it is |
+| --- | --- |
+| [`typesafeai-sdk-community`](https://crates.io/crates/typesafeai-sdk-community) | The SDK: clients, questions, answers, retries, errors. The only crate you add. |
+| [`typesafeai-sdk-community-macros`](https://crates.io/crates/typesafeai-sdk-community-macros) | The `ChoiceLabels`, `ScoreLevels`, and `Questions` derive macros, in [`macros/`](macros). Proc macros must be their own crate; the SDK depends on it and re-exports the derives under the default `derive` feature. |
+
+Both crates share one version and are released together.
+
 > This is an independent community project and is not maintained by TypeSafe AI.
 
 ## Quickstart
@@ -121,6 +135,14 @@ Attribute reference:
 `Choice::of::<Team>("...")` and `Score::of::<Urgency>("...")` build single questions from an enum,
 `response.choice_as::<Team>("team")` and `response.parse::<Triage>()` type an untyped response,
 and everything is available on the blocking client too.
+
+The derives come from the `typesafeai-sdk-community-macros` crate and are re-exported, so
+`use typesafeai_sdk_community::{ChoiceLabels, ScoreLevels, Questions}` is all you import. They
+are behind the default `derive` feature; with `default-features = false` the traits in the
+`typed` module can still be implemented by hand. The macros crate itself is not meant to be
+depended on directly. If you rename this crate in your `Cargo.toml` (`package = ...`), tell
+the derives where to find it with `#[choice(crate = "my_alias")]`, `#[score(crate = ...)]`, or
+`#[questions(crate = ...)]`.
 
 ## Decisions
 
@@ -292,12 +314,22 @@ RUST_LOG=typesafeai_sdk_community=debug cargo run --example models
 
 | Feature | Default | Effect |
 | --- | --- | --- |
-| `derive` | yes | The `ChoiceLabels`, `ScoreLevels`, and `Questions` derive macros |
+| `derive` | yes | The `ChoiceLabels`, `ScoreLevels`, and `Questions` derive macros (pulls in `typesafeai-sdk-community-macros`) |
 | `rustls` | yes | TLS via rustls with the platform certificate verifier |
 | `native-tls` | no | TLS via the operating system's TLS library |
 | `blocking` | no | The synchronous `blocking::TypeSafeClient` |
 
 ## Development
+
+```
+Cargo.toml        typesafeai-sdk-community (the SDK)
+src/              client, questions, responses, retry, errors, typed, decision
+macros/           typesafeai-sdk-community-macros (the derive macros)
+tests/            offline tests against a scripted mock server; live.rs self-skips without a key
+examples/         basic, typed, models, blocking
+```
+
+Every command below runs across both crates:
 
 ```sh
 cargo test --workspace --all-features   # offline; live tests self-skip without TYPESAFE_API_KEY
