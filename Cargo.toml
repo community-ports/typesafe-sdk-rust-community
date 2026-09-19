@@ -1,0 +1,54 @@
+[package]
+name = "typesafe-sdk-community"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Community-built Rust SDK for the TypeSafe AI API (System One / Jev)."
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/JSBtechnologies/typesafe-sdk-rust-community"
+homepage = "https://typesafe.ai"
+documentation = "https://docs.typesafe.ai/"
+keywords = ["typesafe", "sdk", "api", "ai", "jev"]
+categories = ["api-bindings", "web-programming::http-client"]
+exclude = [".github/", "docs/"]
+
+[lib]
+name = "typesafe_sdk"
+
+[features]
+default = ["rustls"]
+# TLS via rustls with the platform certificate verifier (reqwest's default).
+rustls = ["reqwest/rustls"]
+# TLS via the operating system's native TLS library.
+native-tls = ["reqwest/native-tls"]
+# A synchronous `blocking::TypeSafeClient` for non-async code.
+blocking = ["reqwest/blocking"]
+
+[dependencies]
+reqwest = { version = "0.13", default-features = false, features = ["http2", "charset", "system-proxy"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_path_to_error = "0.1"
+thiserror = "2"
+tracing = "0.1"
+httpdate = "1"
+fastrand = "2"
+tokio = { version = "1", features = ["time"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+httpmock = "0.8"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[[example]]
+name = "blocking"
+required-features = ["blocking"]
+
+[[test]]
+name = "blocking"
+required-features = ["blocking"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
