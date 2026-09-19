@@ -27,7 +27,7 @@ pub(crate) const MAX_ERROR_BODY_LENGTH: usize = 200;
 pub(crate) const SYSTEM_ONE_PATH: &str = "/v1/systemone";
 pub(crate) const MODELS_PATH: &str = "/v1/models";
 
-pub(crate) const SDK_NAME: &str = "typesafe-sdk-rust-community";
+pub(crate) const SDK_NAME: &str = "typesafe-sdk";
 pub(crate) const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub(crate) const JSON_CONTENT_TYPE: &str = "application/json";
 
@@ -42,12 +42,13 @@ pub(crate) const RETRY_AFTER_MS_HEADER: &str = "retry-after-ms";
 pub(crate) const SECRET_HEADERS: &[&str] =
     &["authorization", "proxy-authorization", "x-api-key", "api-key", "cookie", "set-cookie"];
 
-/// The `X-TypeSafe-Runtime` value, e.g. `rust/1.96.0 (windows; x86_64)`.
+/// The `X-TypeSafe-Runtime` value, e.g. `rust/1.96.0 (linux; x86_64)` or `rust/1.96.0 (macos; aarch64)`.
+/// The OS and architecture are read at runtime, mirroring the Python SDK's `python/<version> (<platform>; <machine>)`.
 pub(crate) fn runtime() -> String {
     format!("rust/{} ({}; {})", env!("TYPESAFE_SDK_RUSTC_VERSION"), std::env::consts::OS, std::env::consts::ARCH)
 }
 
-/// The `User-Agent` / `X-TypeSafe-SDK` value, e.g. `typesafe-sdk-rust-community/0.1.0`.
+/// The `User-Agent` / `X-TypeSafe-SDK` value, e.g. `typesafe-sdk/0.1.0`.
 pub(crate) fn sdk_identifier() -> String {
     format!("{SDK_NAME}/{SDK_VERSION}")
 }

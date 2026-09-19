@@ -1,5 +1,6 @@
 //! Captures the compiling `rustc` version so the SDK can report it in the
 //! `X-TypeSafe-Runtime` header, mirroring the Python SDK's `python/<version>` runtime tag.
+//! Works with any toolchain on Linux, macOS, and Windows; falls back to `unknown`.
 
 use std::env;
 use std::process::Command;

@@ -101,8 +101,8 @@ async fn request_wire_format() {
     assert_eq!(request.header("authorization"), Some("Bearer sk-test"));
     assert_eq!(request.header("accept"), Some("application/json"));
     assert_eq!(request.header("content-type"), Some("application/json"));
-    assert_eq!(request.header("user-agent"), Some(format!("typesafe-sdk-rust-community/{VERSION}").as_str()));
-    assert_eq!(request.header("x-typesafe-sdk"), Some(format!("typesafe-sdk-rust-community/{VERSION}").as_str()));
+    assert_eq!(request.header("user-agent"), Some(format!("typesafe-sdk/{VERSION}").as_str()));
+    assert_eq!(request.header("x-typesafe-sdk"), Some(format!("typesafe-sdk/{VERSION}").as_str()));
     assert!(request.header("x-typesafe-runtime").unwrap().starts_with("rust/"));
     assert_eq!(request.header("x-typesafe-retry-count"), None);
     assert_eq!(request.header("x-default"), Some("override"));
@@ -414,10 +414,7 @@ async fn custom_http_client_and_clone_share_state() {
     let client = TypeSafeClient::builder().api_key("sk-test").base_url(server.url()).http_client(http).build().unwrap();
     let clone = client.clone();
     clone.models().list().send().await.unwrap();
-    assert_eq!(
-        server.last_request().header("user-agent"),
-        Some(format!("typesafe-sdk-rust-community/{VERSION}").as_str())
-    );
+    assert_eq!(server.last_request().header("user-agent"), Some(format!("typesafe-sdk/{VERSION}").as_str()));
     assert_eq!(clone.base_url(), server.url());
     assert!(format!("{client:?}").contains("TypeSafeClient"));
     assert!(!format!("{client:?}").contains("sk-test"));

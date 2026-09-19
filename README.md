@@ -15,7 +15,7 @@ generated text. Learn what TypeSafe is and how to design questions in the
 
 ```toml
 [dependencies]
-typesafe-sdk-community = "0.1"
+typesafe-sdk = "0.1"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -49,8 +49,8 @@ async fn main() -> typesafe_sdk::Result<()> {
 }
 ```
 
-The crate is published as `typesafe-sdk-community` and imported as `typesafe_sdk`, mirroring
-the Python module name.
+The crate is `typesafe-sdk` and imports as `typesafe_sdk`, mirroring the Python package and
+module names.
 
 ## Questions
 
@@ -171,7 +171,7 @@ match client.system_one("...").question("q", Noul::new("?")).send().await {
 Enable the `blocking` feature for a synchronous client with the same API:
 
 ```toml
-typesafe-sdk-community = { version = "0.1", features = ["blocking"] }
+typesafe-sdk = { version = "0.1", features = ["blocking"] }
 ```
 
 ```rust

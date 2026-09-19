@@ -1,5 +1,5 @@
 [package]
-name = "typesafe-sdk-community"
+name = "typesafe-sdk"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
@@ -12,9 +12,6 @@ documentation = "https://docs.typesafe.ai/"
 keywords = ["typesafe", "sdk", "api", "ai", "jev"]
 categories = ["api-bindings", "web-programming::http-client"]
 exclude = [".github/", "docs/"]
-
-[lib]
-name = "typesafe_sdk"
 
 [features]
 default = ["rustls"]
