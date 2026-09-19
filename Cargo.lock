@@ -1926,6 +1926,7 @@ name = "typesafeai-sdk-community"
 version = "0.3.1"
 dependencies = [
  "fastrand",
+ "futures-util",
  "httpdate",
  "httpmock",
  "reqwest",

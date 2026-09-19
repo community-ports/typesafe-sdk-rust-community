@@ -102,6 +102,7 @@
 #![warn(missing_docs, rust_2018_idioms, unreachable_pub)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+pub mod batch;
 pub mod composite;
 pub mod constants;
 pub mod decision;

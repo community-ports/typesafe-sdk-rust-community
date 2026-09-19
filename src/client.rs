@@ -265,6 +265,18 @@ impl TypeSafeClient {
         self.inner.transport.as_ref()
     }
 
+    /// A client sharing this one's configuration whose transport waits on `pacer`.
+    pub(crate) fn paced(&self, pacer: crate::batch::Pacer) -> TypeSafeClient {
+        let transport = crate::batch::PacedTransport::new(Arc::clone(&self.inner.transport), pacer);
+        TypeSafeClient {
+            inner: Arc::new(Inner {
+                config: self.inner.config.clone(),
+                retry: self.inner.retry.clone(),
+                transport: Arc::new(transport),
+            }),
+        }
+    }
+
     async fn dispatch<T: crate::transport::Decode>(
         &self,
         request: PreparedRequest,

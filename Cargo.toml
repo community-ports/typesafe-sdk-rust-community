@@ -39,6 +39,7 @@ thiserror = "2"
 tracing = "0.1"
 httpdate = "1"
 fastrand = "2"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 tokio = { version = "1", features = ["time"] }
 
 [dev-dependencies]
@@ -56,6 +57,10 @@ required-features = ["blocking"]
 
 [[test]]
 name = "route_composite_mock"
+required-features = ["derive", "test-util"]
+
+[[test]]
+name = "batch"
 required-features = ["derive", "test-util"]
 
 [package.metadata.docs.rs]
