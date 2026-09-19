@@ -1,7 +1,7 @@
 //! Community-built Rust SDK for the [TypeSafe AI](https://typesafe.ai) API.
 //!
-//! TypeSafe's **System One** models (Jev is the flagship) return fast, typed judgments —
-//! probabilities, selections, and scores — that code can consume directly. This crate is a port
+//! TypeSafe's **System One** models (Jev is the flagship) return fast, typed judgments
+//! (probabilities, selections, and scores) that code can consume directly. This crate is a port
 //! of the official [Python SDK](https://github.com/typesafe-ai/typesafe-sdk-python): same
 //! primitives, same request/response shapes, same retry and error semantics, in idiomatic Rust.
 //!
@@ -42,9 +42,9 @@
 //!
 //! # Feature flags
 //!
-//! - `rustls` *(default)* — TLS via rustls with the platform certificate verifier.
-//! - `native-tls` — TLS via the operating system's TLS library.
-//! - `blocking` — the synchronous [`blocking::TypeSafeClient`].
+//! - `rustls` *(default)*: TLS via rustls with the platform certificate verifier.
+//! - `native-tls`: TLS via the operating system's TLS library.
+//! - `blocking`: the synchronous [`blocking::TypeSafeClient`].
 //!
 //! # Configuration
 //!
@@ -53,8 +53,8 @@
 //! | API key | [`ClientBuilder::api_key`] | `TYPESAFE_API_KEY` | required |
 //! | Base URL | [`ClientBuilder::base_url`] | `TYPESAFE_BASE_URL` | `https://api.typesafe.ai` |
 //! | Model | [`ClientBuilder::model`] | `TYPESAFE_DEFAULT_MODEL` | `jev-latest` |
-//! | Timeout | [`ClientBuilder::timeout`] | — | 10 seconds |
-//! | Retries | [`ClientBuilder::retry`] | — | see [`RetryPolicy`] |
+//! | Timeout | [`ClientBuilder::timeout`] | none | 10 seconds |
+//! | Retries | [`ClientBuilder::retry`] | none | see [`RetryPolicy`] |
 //!
 //! # Logging
 //!

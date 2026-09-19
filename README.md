@@ -1,11 +1,11 @@
 # TypeSafe AI Rust SDK (community)
 
-A community-built Rust SDK for the [TypeSafe AI](https://typesafe.ai) API — a port of the
+A community-built Rust SDK for the [TypeSafe AI](https://typesafe.ai) API. It is a port of the
 official [Python SDK](https://github.com/typesafe-ai/typesafe-sdk-python) with the same
 primitives, wire format, retry behavior, and error semantics, in idiomatic Rust.
 
-TypeSafe's **System One** models (Jev is the flagship) return fast, typed judgments —
-probabilities, selections, and scores — that your code can consume directly instead of
+TypeSafe's **System One** models (Jev is the flagship) return fast, typed judgments
+(probabilities, selections, and scores) that your code can consume directly instead of
 generated text. Learn what TypeSafe is and how to design questions in the
 [TypeSafe docs](https://docs.typesafe.ai/).
 
@@ -56,7 +56,7 @@ module names.
 
 | Need | Primitive | Answer |
 | --- | --- | --- |
-| Whether a condition holds | `Noul` | `NoulAnswer { noul: f64 }` — probability of "yes" |
+| Whether a condition holds | `Noul` | `NoulAnswer { noul: f64 }`, the probability of "yes" |
 | One of a defined set | `Choice` | `ChoiceAnswer { choice, confidence, probabilities }` |
 | Degree along an ordered rubric | `Score` | `ScoreAnswer { score, confidence, legend, probabilities }` |
 
@@ -102,10 +102,10 @@ let mine: Mine = client.system_one("...").question("billing", Noul::new("Billing
 | API key | `api_key` | `TYPESAFE_API_KEY` | required |
 | Base URL | `base_url` | `TYPESAFE_BASE_URL` | `https://api.typesafe.ai` |
 | Model | `model` | `TYPESAFE_DEFAULT_MODEL` | `jev-latest` |
-| Timeout | `timeout` | — | 10 seconds |
-| Retries | `retry` | — | see below |
-| Headers | `header` / `headers` | — | none |
-| HTTP client | `http_client` | — | a default `reqwest::Client` |
+| Timeout | `timeout` | none | 10 seconds |
+| Retries | `retry` | none | see below |
+| Headers | `header` / `headers` | none | none |
+| HTTP client | `http_client` | none | a default `reqwest::Client` |
 
 Explicit options win over environment variables; empty or whitespace-only environment values
 are ignored. Every option except the API key can also be overridden per call on the request
@@ -216,9 +216,9 @@ Minimum supported Rust version: 1.88.
 
 ## Related
 
-- [TypeSafe docs](https://docs.typesafe.ai/) — concepts, primitives, cookbooks, HTTP API
-- [typesafe-sdk-python](https://github.com/typesafe-ai/typesafe-sdk-python) — the official Python SDK this crate mirrors
+- [TypeSafe docs](https://docs.typesafe.ai/): concepts, primitives, cookbooks, HTTP API
+- [typesafe-sdk-python](https://github.com/typesafe-ai/typesafe-sdk-python): the official Python SDK this crate mirrors
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

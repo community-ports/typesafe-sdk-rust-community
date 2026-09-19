@@ -2,10 +2,10 @@
 //!
 //! Three primitives are available, each with a builder-style API:
 //!
-//! - [`Noul`] — whether a condition holds; answered with a probability of "yes".
-//! - [`Choice`] — one of a defined set of labels; answered with the winning label and a
+//! - [`Noul`]: whether a condition holds; answered with a probability of "yes".
+//! - [`Choice`]: one of a defined set of labels; answered with the winning label and a
 //!   probability distribution over all labels.
-//! - [`Score`] — a degree along an ordered rubric; answered with an expected score and a
+//! - [`Score`]: a degree along an ordered rubric; answered with an expected score and a
 //!   distribution over the levels.
 //!
 //! Instructions and criteria descriptions accept anything convertible into a
