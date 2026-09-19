@@ -55,7 +55,13 @@ async fn main() -> typesafe_sdk::Result<()> {
     let urgency = response.score("urgency").expect("urgency is a score answer");
     println!("urgency: {:.2} (confidence {:.3})", urgency.score, urgency.confidence);
     for (level, probability) in &urgency.probabilities {
-        println!("  {level} {:<26} {probability:.3}", urgency.legend[level]);
+        // Legend entries are JSON values; plain-text levels display without quotes.
+        let description = match urgency.legend.get(level) {
+            Some(serde_json::Value::String(text)) => text.clone(),
+            Some(other) => other.to_string(),
+            None => String::new(),
+        };
+        println!("  {level} {description:<26} {probability:.3}");
     }
     Ok(())
 }
