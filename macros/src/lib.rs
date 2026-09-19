@@ -7,7 +7,7 @@
 use heck::{ToKebabCase, ToLowerCamelCase, ToPascalCase, ToShoutySnakeCase, ToSnakeCase};
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
-use quote::{ToTokens, format_ident, quote};
+use quote::{ToTokens, format_ident, quote, quote_spanned};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::{Attribute, Data, DeriveInput, Expr, ExprLit, Fields, Ident, Lit, LitStr, Token, Type};
@@ -169,16 +169,21 @@ fn humanize(variant: &str) -> String {
     words
 }
 
-fn reject_generics(input: &DeriveInput, derive: &str) -> syn::Result<()> {
+/// Reject generic input with a message that names the attribute and says why.
+fn reject_generics(input: &DeriveInput, label: &str, reason: &str) -> syn::Result<()> {
     if input.generics.params.is_empty() {
         Ok(())
     } else {
-        Err(syn::Error::new_spanned(&input.generics, format!("#[derive({derive})] does not support generic types")))
+        Err(syn::Error::new_spanned(&input.generics, format!("{label} does not support generic types: {reason}")))
     }
 }
 
 fn unit_variants<'a>(input: &'a DeriveInput, derive: &str) -> syn::Result<Vec<&'a syn::Variant>> {
-    reject_generics(input, derive)?;
+    reject_generics(
+        input,
+        &format!("#[derive({derive})]"),
+        "a label enum has no fields, so a parameter has nothing to apply to",
+    )?;
     let Data::Enum(data) = &input.data else {
         return Err(syn::Error::new_spanned(&input.ident, format!("#[derive({derive})] only supports enums")));
     };
@@ -425,7 +430,8 @@ struct QuestionField {
     ty: Type,
     name: String,
     question: TokenStream2,
-    assert: TokenStream2,
+    /// `FieldType: XTarget`, added to the generated impl's `where` clause.
+    bound: TokenStream2,
     mock: MockShape,
 }
 
@@ -481,7 +487,8 @@ fn question_field(
         None => quote!(::core::option::Option::None),
     };
 
-    let (question, assert, mock) = match kind {
+    let ty_span = syn::spanned::Spanned::span(&ty);
+    let (question, bound, mock) = match kind {
         Kind::Noul => {
             let mut criteria = quote!(::core::option::Option::None);
             let when_true = args.take("when_true");
@@ -494,7 +501,7 @@ fn question_field(
             args.finish(&["instructions", "name", "when_true", "when_false"])?;
             (
                 quote!(#krate::Question::Noul(#krate::Noul { instructions: #instructions, criteria: #criteria })),
-                quote!(let _ = assert_noul::<#ty>;),
+                quote_spanned!(ty_span=> #ty: #krate::typed::NoulTarget),
                 MockShape::Noul,
             )
         }
@@ -506,7 +513,7 @@ fn question_field(
             args.finish(&["instructions", "name", "labels"])?;
             (
                 quote!(#krate::Question::Choice(#krate::Choice { instructions: #instructions, criteria: #criteria })),
-                quote!(let _ = assert_choice::<#ty>;),
+                quote_spanned!(ty_span=> #ty: #krate::typed::ChoiceTarget),
                 mock,
             )
         }
@@ -521,12 +528,12 @@ fn question_field(
             args.finish(&["instructions", "name", "levels"])?;
             (
                 quote!(#krate::Question::Score(#krate::Score { instructions: #instructions, criteria: #criteria })),
-                quote!(let _ = assert_score::<#ty>;),
+                quote_spanned!(ty_span=> #ty: #krate::typed::ScoreTarget),
                 mock,
             )
         }
     };
-    Ok(QuestionField { ident, ty, name, question, assert, mock })
+    Ok(QuestionField { ident, ty, name, question, bound, mock })
 }
 
 fn opt_value(krate: &TokenStream2, expr: Option<Expr>) -> TokenStream2 {
@@ -561,20 +568,17 @@ fn levels_expr(krate: &TokenStream2, expr: &Expr) -> syn::Result<(TokenStream2, 
     Ok((quote!(::std::vec![#(#entries),*]), array.elems.len()))
 }
 
-fn kind_asserts(krate: &TokenStream2, asserts: &[TokenStream2]) -> TokenStream2 {
-    // Kind checks: referencing the generic fn with an explicit type argument fails to compile
-    // when the field type does not implement the marker trait for its question kind. These are
-    // emitted inside the generated `questions()` body so the owner's generic parameters are in
-    // scope.
-    quote! {
-        #[allow(dead_code)]
-        fn assert_noul<__T: #krate::typed::NoulTarget>() {}
-        #[allow(dead_code)]
-        fn assert_choice<__T: #krate::typed::ChoiceTarget>() {}
-        #[allow(dead_code)]
-        fn assert_score<__T: #krate::typed::ScoreTarget>() {}
-        #(#asserts)*
+/// The owner's generics plus one `FieldType: XTarget` predicate per question field. Putting
+/// the kind checks in the impl's `where` clause reports a mismatched field type at the field,
+/// works for generic owners, and supplies the bounds a generic owner needs without the user
+/// naming the (sealed) marker traits.
+fn bounded_generics(input: &DeriveInput, bounds: &[TokenStream2]) -> syn::Result<syn::Generics> {
+    let mut generics = input.generics.clone();
+    let where_clause = generics.make_where_clause();
+    for bound in bounds {
+        where_clause.predicates.push(syn::parse2(bound.clone())?);
     }
+    Ok(generics)
 }
 
 /// Setter methods on a generated mock builder for one field, named `<prefix><field>`.
@@ -582,15 +586,15 @@ fn mock_setters(
     krate: &TokenStream2,
     field: &QuestionField,
     method_prefix: &str,
-    names: &mut MockNames,
+    names: &mut std::collections::HashSet<String>,
 ) -> syn::Result<TokenStream2> {
     let name = &field.name;
     let ty = &field.ty;
     let setter = format_ident!("{}{}", method_prefix, field.ident);
     let setter_with = format_ident!("{}{}_with", method_prefix, field.ident);
-    names.claim(&setter.to_string(), field.ident.span())?;
+    claim_method(names, setter.to_string(), field.ident.span())?;
     if !matches!(field.mock, MockShape::Noul) {
-        names.claim(&setter_with.to_string(), field.ident.span())?;
+        claim_method(names, setter_with.to_string(), field.ident.span())?;
     }
     let doc = format!("Answer the `{name}` question.");
     let doc_with = format!("Answer the `{name}` question with a full distribution.");
@@ -665,28 +669,21 @@ fn mock_setters(
     })
 }
 
-/// Names the generated mock builder itself uses; a field or variant producing one of these
-/// (or the same name twice) is reported at expansion time instead of as a duplicate-method error.
-struct MockNames {
-    seen: std::collections::HashSet<String>,
+/// Claim a generated mock-builder method name, reporting a collision with another setter or a
+/// reserved builder method at expansion time instead of as a duplicate-method error later.
+fn claim_method(seen: &mut std::collections::HashSet<String>, name: String, span: Span) -> syn::Result<()> {
+    if seen.contains(&name) {
+        return Err(syn::Error::new(
+            span,
+            format!("mock builder method `{name}` collides with another setter or a reserved builder method"),
+        ));
+    }
+    seen.insert(name);
+    Ok(())
 }
 
-impl MockNames {
-    fn new() -> Self {
-        MockNames { seen: ["with", "build", "route_with"].into_iter().map(String::from).collect() }
-    }
-
-    fn claim(&mut self, name: &str, span: Span) -> syn::Result<()> {
-        if !self.seen.insert(name.to_string()) {
-            return Err(syn::Error::new(
-                span,
-                format!(
-                    "mock builder method `{name}` collides with another setter or a reserved name (with, build, route_with)"
-                ),
-            ));
-        }
-        Ok(())
-    }
+fn reserved_methods(extra: &[&str]) -> std::collections::HashSet<String> {
+    ["with", "build"].iter().chain(extra).map(|name| (*name).to_string()).collect()
 }
 
 /// The shared shell of a generated mock builder.
@@ -772,23 +769,18 @@ fn expand_questions(input: &DeriveInput) -> syn::Result<TokenStream2> {
     }
 
     let struct_name = &input.ident;
-    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let mut names = std::collections::HashSet::new();
     let parsed: Vec<QuestionField> =
         fields.named.iter().map(|field| question_field(field, &krate, "", &mut names)).collect::<syn::Result<_>>()?;
     let inserts: Vec<_> = parsed.iter().map(|f| f.insert(&krate)).collect();
     let builds: Vec<_> = parsed.iter().map(|f| f.build(&krate)).collect();
-    let asserts: Vec<_> = parsed.iter().map(|f| f.assert.clone()).collect();
-    let checks = kind_asserts(&krate, &asserts);
+    let bounds: Vec<_> = parsed.iter().map(|f| f.bound.clone()).collect();
+    let generics = bounded_generics(input, &bounds)?;
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     let mock_impl = if mock {
-        if !input.generics.params.is_empty() {
-            return Err(syn::Error::new_spanned(
-                &input.generics,
-                "#[questions(mock)] does not support generic structs",
-            ));
-        }
-        let mut names = MockNames::new();
+        reject_generics(input, "#[questions(mock)]", "the generated fixture builder is not generic")?;
+        let mut names = reserved_methods(&[]);
         let mut setters = TokenStream2::new();
         for field in &parsed {
             setters.extend(mock_setters(&krate, field, "", &mut names)?);
@@ -801,7 +793,6 @@ fn expand_questions(input: &DeriveInput) -> syn::Result<TokenStream2> {
     Ok(quote! {
         impl #impl_generics #krate::typed::Questions for #struct_name #ty_generics #where_clause {
             fn questions() -> ::std::collections::BTreeMap<::std::string::String, #krate::Question> {
-                #checks
                 let mut map = ::std::collections::BTreeMap::new();
                 #(#inserts)*
                 map
@@ -868,16 +859,15 @@ fn expand_route(input: &DeriveInput) -> syn::Result<TokenStream2> {
     }
 
     let enum_name = &input.ident;
-    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
-    if mock && !input.generics.params.is_empty() {
-        return Err(syn::Error::new_spanned(&input.generics, "#[route(mock)] does not support generic enums"));
+    if mock {
+        reject_generics(input, "#[route(mock)]", "the generated fixture builder is not generic")?;
     }
-    let mut mock_names = MockNames::new();
+    let mut mock_names = reserved_methods(&["route_with"]);
     let mut names = std::collections::HashSet::from([route_name.clone()]);
     let mut labels = Vec::new();
     let mut describes = Vec::new();
     let mut inserts = Vec::new();
-    let mut asserts = Vec::new();
+    let mut bounds = Vec::new();
     let mut arms = Vec::new();
     let mut label_arms = Vec::new();
     let mut mock_setters_all = Vec::new();
@@ -925,7 +915,7 @@ fn expand_route(input: &DeriveInput) -> syn::Result<TokenStream2> {
         };
         for field in &fields {
             inserts.push(field.insert(&krate));
-            asserts.push(field.assert.clone());
+            bounds.push(field.bound.clone());
         }
         let builds: Vec<_> = fields.iter().map(|f| f.build(&krate)).collect();
         arms.push(match &variant.fields {
@@ -939,7 +929,7 @@ fn expand_route(input: &DeriveInput) -> syn::Result<TokenStream2> {
 
         if mock {
             let variant_snake = variant_ident.to_string().to_snake_case();
-            mock_names.claim(&variant_snake, variant_ident.span())?;
+            claim_method(&mut mock_names, variant_snake.clone(), variant_ident.span())?;
             let selector = format_ident!("{variant_snake}");
             let doc = format!("Select the `{label}` route with probability 1.");
             let route_name_lit = route_name.clone();
@@ -959,7 +949,8 @@ fn expand_route(input: &DeriveInput) -> syn::Result<TokenStream2> {
         describes.push(describe);
     }
 
-    let checks = kind_asserts(&krate, &asserts);
+    let generics = bounded_generics(input, &bounds)?;
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let mock_impl = if mock {
         let route_name_lit = route_name.clone();
         let mut setters: TokenStream2 = mock_setters_all.into_iter().collect();
@@ -981,7 +972,6 @@ fn expand_route(input: &DeriveInput) -> syn::Result<TokenStream2> {
     Ok(quote! {
         impl #impl_generics #krate::typed::Questions for #enum_name #ty_generics #where_clause {
             fn questions() -> ::std::collections::BTreeMap<::std::string::String, #krate::Question> {
-                #checks
                 let mut map = ::std::collections::BTreeMap::new();
                 map.insert(
                     ::std::string::String::from(#route_name),

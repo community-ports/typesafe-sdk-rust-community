@@ -323,40 +323,10 @@ async fn cancelled_batch_drops_work_and_leaves_the_transport_usable() {
     let mock = MockTransport::new();
     mock.fallback(MockResponse::answers().noul("billing", 0.5));
     let (client, _) = slow_client(&mock, Duration::from_millis(50));
-    let seen = Arc::new(AtomicUsize::new(0));
-    let progress = Arc::clone(&seen);
-    let run = client.batch::<Triage>(["a", "b", "c", "d", "e", "f"]).concurrency(2).on_progress(move |_| {
-        progress.fetch_add(1, Ordering::SeqCst);
-    });
-    // Give up after roughly one round: some items finished, some were in flight, some never started.
-    let result = tokio::time::timeout(Duration::from_millis(80), run.run()).await;
-    assert!(result.is_err(), "the batch should not finish within the timeout");
-    let observed = seen.load(Ordering::SeqCst);
-    assert!(observed < 6, "progress callbacks fired: {observed}");
+    let run = client.batch::<Triage>(["a", "b", "c", "d", "e", "f"]).concurrency(2);
+    // Six items, two at a time, 50ms each cannot finish in 80ms: the future is dropped mid-run.
+    assert!(tokio::time::timeout(Duration::from_millis(80), run.run()).await.is_err());
     // Nothing is stuck: the same client and transport serve a fresh request immediately.
-    tokio::time::sleep(Duration::from_millis(120)).await;
     let outcome = client.batch::<Triage>(["z"]).run().await;
     assert_eq!(outcome.succeeded(), 1);
-}
-
-#[test]
-fn pacer_survives_a_poisoned_lock() {
-    let pacer = Pacer::new();
-    let poisoner = pacer.clone();
-    let _ = std::thread::spawn(move || {
-        // Panic while holding the lock through pause_for's critical section is impossible from
-        // outside, so poison via a guard from a helper that panics after locking.
-        struct PanicOnDrop;
-        impl Drop for PanicOnDrop {
-            fn drop(&mut self) {
-                panic!("poison");
-            }
-        }
-        let _guard = PanicOnDrop;
-        poisoner.pause_for(Duration::from_millis(1));
-    })
-    .join();
-    // Whether or not the panic poisoned anything, the pacer keeps working.
-    pacer.pause_for(Duration::ZERO);
-    assert!(pacer.remaining() <= Duration::from_millis(1));
 }

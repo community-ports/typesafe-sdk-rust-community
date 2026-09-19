@@ -121,6 +121,7 @@ mod logging;
 mod question;
 mod response;
 mod retry;
+mod sync;
 pub mod transport;
 
 #[cfg(feature = "blocking")]

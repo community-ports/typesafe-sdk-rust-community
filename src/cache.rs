@@ -65,6 +65,11 @@ pub struct CachedResponse {
 }
 
 impl CachedResponse {
+    /// A cached response from its parts, for [`CacheStore`] implementations.
+    pub fn new(status: u16, headers: Vec<(String, String)>, body: Vec<u8>) -> Self {
+        CachedResponse { status, headers, body }
+    }
+
     pub(crate) fn from_http(response: &HttpResponse) -> Self {
         CachedResponse {
             status: response.status.as_u16(),
@@ -84,7 +89,7 @@ impl CachedResponse {
                 headers.append(name, value);
             }
         }
-        Some(HttpResponse { status: StatusCode::from_u16(self.status).ok()?, headers, body: self.body })
+        Some(HttpResponse::new(StatusCode::from_u16(self.status).ok()?, headers, self.body))
     }
 }
 
@@ -122,7 +127,7 @@ impl InMemoryStore {
 
     /// How many entries are stored, including ones that may have expired.
     pub fn len(&self) -> usize {
-        self.entries.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).len()
+        crate::sync::lock(&self.entries).len()
     }
 
     /// Whether the store is empty.
@@ -133,7 +138,7 @@ impl InMemoryStore {
 
 impl CacheStore for InMemoryStore {
     fn get(&self, key: &str) -> Option<CachedResponse> {
-        let mut entries = self.entries.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut entries = crate::sync::lock(&self.entries);
         let expired = entries.get(key).is_some_and(|e| e.expires.is_some_and(|at| at <= Instant::now()));
         if expired {
             entries.remove(key);
@@ -145,7 +150,7 @@ impl CacheStore for InMemoryStore {
     }
 
     fn set(&self, key: String, response: CachedResponse, ttl: Option<Duration>) {
-        let mut entries = self.entries.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut entries = crate::sync::lock(&self.entries);
         if entries.len() >= self.capacity && !entries.contains_key(&key) {
             let now = Instant::now();
             entries.retain(|_, e| e.expires.is_none_or(|at| at > now));
@@ -160,11 +165,11 @@ impl CacheStore for InMemoryStore {
     }
 
     fn remove(&self, key: &str) {
-        self.entries.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).remove(key);
+        crate::sync::lock(&self.entries).remove(key);
     }
 
     fn clear(&self) {
-        self.entries.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clear();
+        crate::sync::lock(&self.entries).clear();
     }
 }
 

@@ -93,7 +93,7 @@ impl MockResponse {
             200,
             Body::Answers {
                 model: "jev-latest".to_string(),
-                usage: Usage { input_tokens: Some(0), output_tokens: Some(0) },
+                usage: Usage::new(0, 0),
                 answers: BTreeMap::new(),
                 extra: Map::new(),
             },
@@ -178,7 +178,7 @@ impl MockResponse {
 
     /// A yes/no answer with the given probability of yes.
     pub fn noul(self, name: impl Into<String>, probability: f64) -> Self {
-        self.answer(name, NoulAnswer { noul: probability })
+        self.answer(name, NoulAnswer::new(probability))
     }
 
     /// A choice answer from a full distribution; the label with the highest probability is
@@ -191,7 +191,7 @@ impl MockResponse {
         let probabilities: BTreeMap<String, f64> = probabilities.into_iter().map(|(l, p)| (l.into(), p)).collect();
         let (choice, confidence) =
             probabilities.iter().max_by(|a, b| a.1.total_cmp(b.1)).map(|(l, p)| (l.clone(), *p)).unwrap_or_default();
-        self.answer(name, ChoiceAnswer { choice, confidence, probabilities })
+        self.answer(name, ChoiceAnswer::new(choice, confidence, probabilities))
     }
 
     /// A certain choice answer: the label gets probability 1.
@@ -226,7 +226,7 @@ impl MockResponse {
         let score = probabilities.iter().map(|(l, p)| f64::from(*l) * p).sum();
         let confidence = probabilities.values().copied().fold(0.0, f64::max);
         let legend: BTreeMap<u32, Value> = legend.into_iter().map(|(l, d)| (l, d.into())).collect();
-        self.answer(name, ScoreAnswer { score, confidence, legend, probabilities })
+        self.answer(name, ScoreAnswer::new(score, confidence, legend, probabilities))
     }
 
     /// A certain score answer at one level of a rubric with `levels` entries.
@@ -268,7 +268,7 @@ impl MockResponse {
     /// Set the token usage reported in the response.
     pub fn usage(mut self, input_tokens: u64, output_tokens: u64) -> Self {
         if let Body::Answers { usage, .. } = &mut self.body {
-            *usage = Usage { input_tokens: Some(input_tokens), output_tokens: Some(output_tokens) };
+            *usage = Usage::new(input_tokens, output_tokens);
         }
         self
     }
@@ -327,7 +327,7 @@ impl MockResponse {
         }
         let status = StatusCode::from_u16(self.status)
             .map_err(|error| Error::InvalidRequest(format!("mock status {}: {error}", self.status)))?;
-        Ok(HttpResponse { status, headers, body })
+        Ok(HttpResponse::new(status, headers, body))
     }
 }
 
@@ -418,39 +418,39 @@ impl MockTransport {
     /// Queue the next response. Responses are served in order. Accepts a [`MockResponse`] or a
     /// generated fixture builder.
     pub fn enqueue(&self, response: impl Into<MockResponse>) -> &Self {
-        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).queue.push_back(response.into());
+        crate::sync::lock(&self.state).queue.push_back(response.into());
         self
     }
 
     /// The response served whenever the queue is empty.
     pub fn fallback(&self, response: impl Into<MockResponse>) -> &Self {
-        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).fallback = Some(response.into());
+        crate::sync::lock(&self.state).fallback = Some(response.into());
         self
     }
 
     /// Every request received so far, in order.
     pub fn requests(&self) -> Vec<RecordedRequest> {
-        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).requests.clone()
+        crate::sync::lock(&self.state).requests.clone()
     }
 
     /// The most recent request.
     pub fn last_request(&self) -> Option<RecordedRequest> {
-        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).requests.last().cloned()
+        crate::sync::lock(&self.state).requests.last().cloned()
     }
 
     /// How many requests were received.
     pub fn request_count(&self) -> usize {
-        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).requests.len()
+        crate::sync::lock(&self.state).requests.len()
     }
 
     /// How many queued responses have not been served.
     pub fn pending(&self) -> usize {
-        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).queue.len()
+        crate::sync::lock(&self.state).queue.len()
     }
 
     /// Forget recorded requests and queued responses.
     pub fn reset(&self) {
-        *self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = State::default();
+        *crate::sync::lock(&self.state) = State::default();
     }
 
     /// An async client wired to this mock, with a dummy API key, retries disabled, and state
@@ -483,7 +483,7 @@ impl MockTransport {
 
     fn handle(&self, request: HttpRequest) -> Result<HttpResponse> {
         let response = {
-            let mut state = self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut state = crate::sync::lock(&self.state);
             let attempt = request
                 .headers
                 .get("x-typesafe-retry-count")
@@ -507,7 +507,7 @@ impl MockTransport {
 
 impl std::fmt::Debug for MockTransport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let state = self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let state = crate::sync::lock(&self.state);
         f.debug_struct("MockTransport")
             .field("pending", &state.queue.len())
             .field("requests", &state.requests.len())
@@ -657,7 +657,7 @@ impl Recorder {
 
     /// The exchanges recorded so far.
     pub fn cassette(&self) -> Cassette {
-        Cassette { exchanges: self.exchanges.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone() }
+        Cassette { exchanges: crate::sync::lock(&self.exchanges).clone() }
     }
 }
 
@@ -670,9 +670,7 @@ impl Transport for Recorder {
                 body: request.body.as_deref().and_then(|bytes| serde_json::from_slice(bytes).ok()),
             };
             let response = self.inner.send(request).await?;
-            self.exchanges
-                .lock()
-                .expect("recorder lock")
+            crate::sync::lock(&self.exchanges)
                 .push(Exchange { request: recorded, response: CassetteResponse::from_http(&response) });
             Ok(response)
         })

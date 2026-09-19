@@ -430,7 +430,7 @@ impl SystemOneParams {
         // cloning the (possibly large) document on every request.
         let mut body = Map::new();
         body.insert("state".into(), std::mem::take(&mut self.state));
-        body.insert("model".into(), Value::String(self.model.clone().unwrap_or_else(|| config.default_model.clone())));
+        body.insert("model".into(), Value::String(self.model.take().unwrap_or_else(|| config.default_model.clone())));
         body.insert(
             "questions".into(),
             serde_json::to_value(&self.questions).map_err(|error| {
@@ -594,29 +594,29 @@ pub struct AskRequest<'a, C, T> {
 /// Per-call options forwarded to an inner request builder, so every typed builder offers the
 /// same options as [`SystemOneRequest`] without hand-copying them.
 macro_rules! delegate_request_options {
-    ($inner:ident) => {
+    () => {
         /// Add an ad-hoc question alongside the typed set. It is available through the full
         /// response but not as a typed field.
         pub fn question(mut self, name: impl Into<String>, question: impl Into<Question>) -> Self {
-            self.$inner = self.$inner.question(name, question);
+            self.inner = self.inner.question(name, question);
             self
         }
 
         /// Model override for this call; otherwise the client default is used.
         pub fn model(mut self, model: impl Into<String>) -> Self {
-            self.$inner = self.$inner.model(model);
+            self.inner = self.inner.model(model);
             self
         }
 
         /// A retry policy overriding the client-level value for this call only.
         pub fn retry(mut self, retry: RetryPolicy) -> Self {
-            self.$inner = self.$inner.retry(retry);
+            self.inner = self.inner.retry(retry);
             self
         }
 
         /// An HTTP timeout overriding the client-level value for this call only.
         pub fn timeout(mut self, timeout: Duration) -> Self {
-            self.$inner = self.$inner.timeout(timeout);
+            self.inner = self.inner.timeout(timeout);
             self
         }
 
@@ -628,51 +628,51 @@ macro_rules! delegate_request_options {
             V: TryInto<HeaderValue>,
             V::Error: fmt::Display,
         {
-            self.$inner = self.$inner.header(name, value);
+            self.inner = self.inner.header(name, value);
             self
         }
 
         /// An additional top-level request-body field; see [`SystemOneRequest::extra_body`].
         pub fn extra_body(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
-            self.$inner = self.$inner.extra_body(key, value);
+            self.inner = self.inner.extra_body(key, value);
             self
         }
 
         /// Fail before sending if a question references a state path the state does not
         /// contain; see the [`state`](crate::state) module.
         pub fn check_paths(mut self) -> Self {
-            self.$inner = self.$inner.check_paths();
+            self.inner = self.inner.check_paths();
             self
         }
 
         /// Skip the state path check for this call even if the client enables it.
         pub fn skip_path_check(mut self) -> Self {
-            self.$inner = self.$inner.skip_path_check();
+            self.inner = self.inner.skip_path_check();
             self
         }
 
         /// Add a dimension to the cache key for this call; see [`SystemOneRequest::cache_scope`].
         pub fn cache_scope(mut self, scope: impl Into<String>) -> Self {
-            self.$inner = self.$inner.cache_scope(scope);
+            self.inner = self.inner.cache_scope(scope);
             self
         }
 
         /// Skip the cache read for this call but store the fresh response.
         pub fn refresh(mut self) -> Self {
-            self.$inner = self.$inner.refresh();
+            self.inner = self.inner.refresh();
             self
         }
 
         /// Neither read from nor write to the cache for this call.
         pub fn no_cache(mut self) -> Self {
-            self.$inner = self.$inner.no_cache();
+            self.inner = self.inner.no_cache();
             self
         }
     };
 }
 
 impl<'a, C, T: Questions> AskRequest<'a, C, T> {
-    delegate_request_options!(inner);
+    delegate_request_options!();
 
     /// The underlying untyped request, for anything not exposed here.
     pub fn into_inner(self) -> SystemOneRequest<'a, C> {
@@ -718,7 +718,7 @@ pub struct RouteRequest<'a, C, T> {
 }
 
 impl<'a, C, T: Route> RouteRequest<'a, C, T> {
-    delegate_request_options!(inner);
+    delegate_request_options!();
 
     /// The underlying typed request.
     pub fn into_inner(self) -> AskRequest<'a, C, T> {

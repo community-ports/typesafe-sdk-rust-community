@@ -15,19 +15,22 @@ API hardening from a full best-practices review before 1.0. No behavior changes.
 - Public data types (answers, responses, typed wrappers, batch outcomes, reports, cache and
   state types) are now `#[non_exhaustive]`, so fields can be added without breaking changes.
   Construct them with the new `NoulAnswer::new`, `ChoiceAnswer::new`, `ScoreAnswer::new`,
-  `Usage::new`, `TypedChoice::new`, `TypedScore::new`, and `HttpResponse::new`, or with the
-  `testing` fixtures. This is the only breaking change: struct literals of these types in
+  `Usage::new`, `TypedChoice::new`, `TypedScore::new`, `HttpResponse::new`, and
+  `CachedResponse::new`, or with the `testing` fixtures. This is the only breaking change: struct literals of these types in
   downstream code no longer compile.
 - The derive-internal marker traits (`NoulTarget`, `ChoiceTarget`, `ScoreTarget`,
   `ChoiceCriteria`, `ScoreCriteria`, `ChoiceOf`, `ScoreOf`) are sealed.
 - `#[derive(Route)]` supports generic enums; `ChoiceLabels` and `ScoreLevels` reject generic
   enums, and `mock` builders reject generic types and colliding method names, all with clear
-  macro errors instead of errors inside generated code.
+  macro errors instead of errors inside generated code. Question-kind checks are `where` bounds
+  on the generated impls, so a generic `Questions` or `Route` type no longer has to name the
+  SDK's marker traits in its own bounds.
 - The request `state` and `extra_body` are moved into the request body rather than cloned.
 - `Pacer`, the in-memory cache store, and the mock transport recover from poisoned locks
   instead of panicking forever after an unrelated panic.
-- `AskRequest` and `RouteRequest` share one macro for their per-call options, so every builder
-  offers the same options as `SystemOneRequest`.
+- `AskRequest` and `RouteRequest` share one macro for their per-call options, so the typed
+  builders always offer the same options as `SystemOneRequest`. (`Batch`, `Rerank`, and `Find`
+  keep their own smaller option sets.)
 - Documented cancellation semantics of `Batch::run` and the cost of bare-identifier path checks.
 
 ## [0.4.0] - 2026-09-19

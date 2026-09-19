@@ -471,12 +471,8 @@ fn blocking_cache() {
 
 #[derive(Debug, PartialEq, Route)]
 #[route("What is it?")]
-enum Generic<
-    T: typesafeai_sdk_community::typed::FromAnswer
-        + typesafeai_sdk_community::typed::NoulTarget
-        + std::fmt::Debug
-        + PartialEq,
-> {
+// The derive adds `T: NoulTarget` to its own impls; the enum needs no SDK bounds.
+enum Generic<T: std::fmt::Debug + PartialEq> {
     #[route(describe = "A thing")]
     Thing {
         #[noul("Is it big?")]

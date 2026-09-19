@@ -65,7 +65,7 @@ impl Pacer {
     /// Pause all requests until at least `delay` from now (never shortens an existing pause).
     pub fn pause_for(&self, delay: Duration) {
         let until = Instant::now() + delay;
-        let mut current = self.until.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut current = crate::sync::lock(&self.until);
         if current.is_none_or(|existing| until > existing) {
             *current = Some(until);
         }
@@ -73,10 +73,7 @@ impl Pacer {
 
     /// How long until requests may be sent, or zero.
     pub fn remaining(&self) -> Duration {
-        self.until
-            .lock()
-            .expect("pacer lock")
-            .map_or(Duration::ZERO, |until| until.saturating_duration_since(Instant::now()))
+        crate::sync::lock(&self.until).map_or(Duration::ZERO, |until| until.saturating_duration_since(Instant::now()))
     }
 
     async fn wait(&self) {
@@ -752,6 +749,20 @@ mod tests {
         pacer.pause_for(Duration::from_millis(200));
         pacer.pause_for(Duration::from_millis(50));
         assert!(pacer.remaining() > Duration::from_millis(100));
+    }
+
+    #[test]
+    fn pacer_recovers_from_a_poisoned_lock() {
+        let pacer = Pacer::new();
+        let poisoner = pacer.clone();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _guard = poisoner.until.lock().unwrap();
+            panic!("poison while holding the pacer lock");
+        }));
+        assert!(result.is_err());
+        assert!(pacer.until.is_poisoned());
+        pacer.pause_for(Duration::from_millis(50));
+        assert!(pacer.remaining() > Duration::ZERO);
     }
 
     #[test]

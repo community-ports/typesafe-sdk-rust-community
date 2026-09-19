@@ -96,7 +96,7 @@
 //! ```compile_fail
 //! use typesafeai_sdk_community::ChoiceLabels;
 //! #[derive(Clone, Copy, Debug, PartialEq, Eq, ChoiceLabels)]
-//! enum Bad<T> { A, B(std::marker::PhantomData<T>) }
+//! enum Bad<const N: usize> { A, B }
 //! ```
 //!
 //! ```compile_fail
@@ -213,8 +213,7 @@ impl<T: ChoiceLabels> TypedChoice<T> {
         for (label, probability) in &answer.probabilities {
             probabilities.push((T::from_label(label).ok_or_else(|| unknown(label))?, *probability));
         }
-        probabilities.sort_by(|a, b| b.1.total_cmp(&a.1));
-        Ok(TypedChoice { choice, confidence: answer.confidence, probabilities })
+        Ok(TypedChoice::new(choice, answer.confidence, probabilities))
     }
 
     /// The probability of a label, or 0 if the response did not include it.
@@ -267,14 +266,13 @@ impl<T: ScoreLevels> TypedScore<T> {
         for (level, probability) in &answer.probabilities {
             probabilities.push((T::from_level(*level).ok_or_else(|| unknown(*level))?, *probability));
         }
-        probabilities.sort_by_key(|(level, _)| level.level());
         let most_likely = probabilities
             .iter()
             .max_by(|a, b| a.1.total_cmp(&b.1))
             .map(|(level, _)| *level)
             .or_else(|| T::from_level(answer.score.round().max(0.0) as u32))
             .ok_or_else(|| unknown(answer.score.round().max(0.0) as u32))?;
-        Ok(TypedScore { score: answer.score, confidence: answer.confidence, most_likely, probabilities })
+        Ok(TypedScore::new(answer.score, answer.confidence, most_likely, probabilities))
     }
 
     /// The probability of a level, or 0 if the response did not include it.
@@ -420,12 +418,14 @@ impl<T: ScoreLevels> Sealed for TypedScore<T> {}
 impl<T: Sealed> Sealed for Option<T> {}
 
 /// Field types a `#[noul]` question may deserialize into. Sealed: implemented by the SDK's
-/// answer types and by the derive macros.
-pub trait NoulTarget: Sealed {}
+/// answer types and by the derive macros. The derives add `FieldType: NoulTarget` to the
+/// generated impl's `where` clause, which is what turns a mismatched field type into a compile
+/// error.
+pub trait NoulTarget: Sealed + FromAnswer {}
 /// Field types a `#[choice]` question may deserialize into. Sealed.
-pub trait ChoiceTarget: Sealed {}
+pub trait ChoiceTarget: Sealed + FromAnswer {}
 /// Field types a `#[score]` question may deserialize into. Sealed.
-pub trait ScoreTarget: Sealed {}
+pub trait ScoreTarget: Sealed + FromAnswer {}
 
 impl NoulTarget for NoulAnswer {}
 impl NoulTarget for bool {}

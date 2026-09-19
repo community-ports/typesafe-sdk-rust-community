@@ -412,7 +412,7 @@ impl Transport for ReqwestTransport {
             let status = response.status();
             let headers = response.headers().clone();
             let body = response.bytes().await.map_err(|error| map_reqwest_error(error, request.timeout))?.to_vec();
-            Ok(HttpResponse { status, headers, body })
+            Ok(HttpResponse::new(status, headers, body))
         })
     }
 
@@ -450,7 +450,7 @@ impl BlockingTransport for ReqwestBlockingTransport {
         let status = response.status();
         let headers = response.headers().clone();
         let body = response.bytes().map_err(|error| map_reqwest_error(error, request.timeout))?.to_vec();
-        Ok(HttpResponse { status, headers, body })
+        Ok(HttpResponse::new(status, headers, body))
     }
 
     fn reqwest_client(&self) -> Option<&reqwest::blocking::Client> {

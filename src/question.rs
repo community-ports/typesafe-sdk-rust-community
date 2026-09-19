@@ -38,6 +38,11 @@ use serde_json::{Map, Value};
 
 use crate::error::{Error, Result};
 
+// The question structs below are deliberately exhaustive (constructible by struct literal):
+// they mirror the request wire schema one-to-one, reject unknown fields, and users build them
+// in ordinary code alongside the builder methods. A new wire field would be a deliberate API
+// change either way.
+
 /// Optional descriptions of the yes and no outcomes of a [`Noul`] question.
 ///
 /// See the [noul primitive](https://docs.typesafe.ai/primitives/noul) for details.
