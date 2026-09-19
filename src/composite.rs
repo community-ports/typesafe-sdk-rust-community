@@ -28,10 +28,10 @@
 //! }
 //!
 //! # let risk = SpamRisk {
-//! #     credentials: NoulAnswer { noul: 0.9 },
-//! #     spoofed: NoulAnswer { noul: 0.2 },
-//! #     reward: ScoreAnswer { score: 2.0, confidence: 1.0, legend: [(0, "a".into()), (1, "b".into()), (2, "c".into())].into(), probabilities: [(2, 1.0)].into() },
-//! #     tone: TypedChoice { choice: Tone::Calm, confidence: 1.0, probabilities: vec![(Tone::Calm, 1.0), (Tone::Angry, 0.0)] },
+//! #     credentials: NoulAnswer::new(0.9),
+//! #     spoofed: NoulAnswer::new(0.2),
+//! #     reward: ScoreAnswer::new(2.0, 1.0, [(0, "a"), (1, "b"), (2, "c")], [(2, 1.0)]),
+//! #     tone: TypedChoice::new(Tone::Calm, 1.0, [(Tone::Calm, 1.0), (Tone::Angry, 0.0)]),
 //! # };
 //! let score = risk.composite();                    // 0..1 with the declared weights
 //! let tuned = Weights::from([("credentials", 0.6), ("spoofed", 0.4)]);
@@ -187,6 +187,7 @@ impl FromIterator<(String, f64)> for Weights {
 
 /// One signal's part in a composite score.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct Contribution {
     /// The signal name (the field name unless renamed).
     pub name: &'static str,

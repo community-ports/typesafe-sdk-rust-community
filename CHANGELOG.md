@@ -6,6 +6,30 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-19
+
+API hardening from a full best-practices review before 1.0. No behavior changes.
+
+### Changed
+
+- Public data types (answers, responses, typed wrappers, batch outcomes, reports, cache and
+  state types) are now `#[non_exhaustive]`, so fields can be added without breaking changes.
+  Construct them with the new `NoulAnswer::new`, `ChoiceAnswer::new`, `ScoreAnswer::new`,
+  `Usage::new`, `TypedChoice::new`, `TypedScore::new`, and `HttpResponse::new`, or with the
+  `testing` fixtures. This is the only breaking change: struct literals of these types in
+  downstream code no longer compile.
+- The derive-internal marker traits (`NoulTarget`, `ChoiceTarget`, `ScoreTarget`,
+  `ChoiceCriteria`, `ScoreCriteria`, `ChoiceOf`, `ScoreOf`) are sealed.
+- `#[derive(Route)]` supports generic enums; `ChoiceLabels` and `ScoreLevels` reject generic
+  enums, and `mock` builders reject generic types and colliding method names, all with clear
+  macro errors instead of errors inside generated code.
+- The request `state` and `extra_body` are moved into the request body rather than cloned.
+- `Pacer`, the in-memory cache store, and the mock transport recover from poisoned locks
+  instead of panicking forever after an unrelated panic.
+- `AskRequest` and `RouteRequest` share one macro for their per-call options, so every builder
+  offers the same options as `SystemOneRequest`.
+- Documented cancellation semantics of `Batch::run` and the cost of bare-identifier path checks.
+
 ## [0.4.0] - 2026-09-19
 
 Batching, state path checks, a response cache, and an evaluation harness.
@@ -123,7 +147,8 @@ Initial port of [typesafe-sdk-python](https://github.com/typesafe-ai/typesafe-sd
 - `X-TypeSafe-SDK`, `X-TypeSafe-Runtime` (runtime-detected OS and architecture), and
   `User-Agent` identification headers.
 
-[Unreleased]: https://github.com/community-ports/typesafeai-sdk-rust-community/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/community-ports/typesafeai-sdk-rust-community/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/community-ports/typesafeai-sdk-rust-community/releases/tag/v0.5.0
 [0.4.0]: https://github.com/community-ports/typesafeai-sdk-rust-community/releases/tag/v0.4.0
 [0.3.1]: https://github.com/community-ports/typesafeai-sdk-rust-community/releases/tag/v0.3.1
 [0.3.0]: https://github.com/community-ports/typesafeai-sdk-rust-community/releases/tag/v0.3.0

@@ -169,7 +169,16 @@ fn humanize(variant: &str) -> String {
     words
 }
 
+fn reject_generics(input: &DeriveInput, derive: &str) -> syn::Result<()> {
+    if input.generics.params.is_empty() {
+        Ok(())
+    } else {
+        Err(syn::Error::new_spanned(&input.generics, format!("#[derive({derive})] does not support generic types")))
+    }
+}
+
 fn unit_variants<'a>(input: &'a DeriveInput, derive: &str) -> syn::Result<Vec<&'a syn::Variant>> {
+    reject_generics(input, derive)?;
     let Data::Enum(data) = &input.data else {
         return Err(syn::Error::new_spanned(&input.ident, format!("#[derive({derive})] only supports enums")));
     };
@@ -275,6 +284,8 @@ fn expand_choice_labels(input: &DeriveInput) -> syn::Result<TokenStream2> {
             }
         }
 
+        impl #krate::typed::__private::Sealed for #enum_name {}
+
         impl #krate::typed::ChoiceTarget for #enum_name {}
 
         impl #krate::typed::ChoiceOf for #enum_name {
@@ -363,6 +374,8 @@ fn expand_score_levels(input: &DeriveInput) -> syn::Result<TokenStream2> {
                 ::core::result::Result::Ok(typed.most_likely)
             }
         }
+
+        impl #krate::typed::__private::Sealed for #enum_name {}
 
         impl #krate::typed::ScoreTarget for #enum_name {}
 
@@ -550,29 +563,38 @@ fn levels_expr(krate: &TokenStream2, expr: &Expr) -> syn::Result<(TokenStream2, 
 
 fn kind_asserts(krate: &TokenStream2, asserts: &[TokenStream2]) -> TokenStream2 {
     // Kind checks: referencing the generic fn with an explicit type argument fails to compile
-    // when the field type does not implement the marker trait for its question kind.
+    // when the field type does not implement the marker trait for its question kind. These are
+    // emitted inside the generated `questions()` body so the owner's generic parameters are in
+    // scope.
     quote! {
-        const _: () = {
-            #[allow(dead_code)]
-            fn assert_noul<T: #krate::typed::NoulTarget>() {}
-            #[allow(dead_code)]
-            fn assert_choice<T: #krate::typed::ChoiceTarget>() {}
-            #[allow(dead_code)]
-            fn assert_score<T: #krate::typed::ScoreTarget>() {}
-            #(#asserts)*
-        };
+        #[allow(dead_code)]
+        fn assert_noul<__T: #krate::typed::NoulTarget>() {}
+        #[allow(dead_code)]
+        fn assert_choice<__T: #krate::typed::ChoiceTarget>() {}
+        #[allow(dead_code)]
+        fn assert_score<__T: #krate::typed::ScoreTarget>() {}
+        #(#asserts)*
     }
 }
 
 /// Setter methods on a generated mock builder for one field, named `<prefix><field>`.
-fn mock_setters(krate: &TokenStream2, field: &QuestionField, method_prefix: &str) -> TokenStream2 {
+fn mock_setters(
+    krate: &TokenStream2,
+    field: &QuestionField,
+    method_prefix: &str,
+    names: &mut MockNames,
+) -> syn::Result<TokenStream2> {
     let name = &field.name;
     let ty = &field.ty;
     let setter = format_ident!("{}{}", method_prefix, field.ident);
     let setter_with = format_ident!("{}{}_with", method_prefix, field.ident);
+    names.claim(&setter.to_string(), field.ident.span())?;
+    if !matches!(field.mock, MockShape::Noul) {
+        names.claim(&setter_with.to_string(), field.ident.span())?;
+    }
     let doc = format!("Answer the `{name}` question.");
     let doc_with = format!("Answer the `{name}` question with a full distribution.");
-    match field.mock {
+    Ok(match field.mock {
         MockShape::Noul => quote! {
             #[doc = #doc]
             pub fn #setter(mut self, probability: f64) -> Self {
@@ -640,6 +662,30 @@ fn mock_setters(krate: &TokenStream2, field: &QuestionField, method_prefix: &str
                 }
             }
         }
+    })
+}
+
+/// Names the generated mock builder itself uses; a field or variant producing one of these
+/// (or the same name twice) is reported at expansion time instead of as a duplicate-method error.
+struct MockNames {
+    seen: std::collections::HashSet<String>,
+}
+
+impl MockNames {
+    fn new() -> Self {
+        MockNames { seen: ["with", "build", "route_with"].into_iter().map(String::from).collect() }
+    }
+
+    fn claim(&mut self, name: &str, span: Span) -> syn::Result<()> {
+        if !self.seen.insert(name.to_string()) {
+            return Err(syn::Error::new(
+                span,
+                format!(
+                    "mock builder method `{name}` collides with another setter or a reserved name (with, build, route_with)"
+                ),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -736,7 +782,17 @@ fn expand_questions(input: &DeriveInput) -> syn::Result<TokenStream2> {
     let checks = kind_asserts(&krate, &asserts);
 
     let mock_impl = if mock {
-        let setters: TokenStream2 = parsed.iter().map(|f| mock_setters(&krate, f, "")).collect();
+        if !input.generics.params.is_empty() {
+            return Err(syn::Error::new_spanned(
+                &input.generics,
+                "#[questions(mock)] does not support generic structs",
+            ));
+        }
+        let mut names = MockNames::new();
+        let mut setters = TokenStream2::new();
+        for field in &parsed {
+            setters.extend(mock_setters(&krate, field, "", &mut names)?);
+        }
         mock_builder(&krate, struct_name, setters)
     } else {
         quote!()
@@ -745,6 +801,7 @@ fn expand_questions(input: &DeriveInput) -> syn::Result<TokenStream2> {
     Ok(quote! {
         impl #impl_generics #krate::typed::Questions for #struct_name #ty_generics #where_clause {
             fn questions() -> ::std::collections::BTreeMap<::std::string::String, #krate::Question> {
+                #checks
                 let mut map = ::std::collections::BTreeMap::new();
                 #(#inserts)*
                 map
@@ -757,7 +814,6 @@ fn expand_questions(input: &DeriveInput) -> syn::Result<TokenStream2> {
             }
         }
 
-        #checks
         #mock_impl
     })
 }
@@ -812,6 +868,11 @@ fn expand_route(input: &DeriveInput) -> syn::Result<TokenStream2> {
     }
 
     let enum_name = &input.ident;
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+    if mock && !input.generics.params.is_empty() {
+        return Err(syn::Error::new_spanned(&input.generics, "#[route(mock)] does not support generic enums"));
+    }
+    let mut mock_names = MockNames::new();
     let mut names = std::collections::HashSet::from([route_name.clone()]);
     let mut labels = Vec::new();
     let mut describes = Vec::new();
@@ -878,6 +939,7 @@ fn expand_route(input: &DeriveInput) -> syn::Result<TokenStream2> {
 
         if mock {
             let variant_snake = variant_ident.to_string().to_snake_case();
+            mock_names.claim(&variant_snake, variant_ident.span())?;
             let selector = format_ident!("{variant_snake}");
             let doc = format!("Select the `{label}` route with probability 1.");
             let route_name_lit = route_name.clone();
@@ -890,7 +952,7 @@ fn expand_route(input: &DeriveInput) -> syn::Result<TokenStream2> {
             });
             let prefix = format!("{variant_snake}_");
             for field in &fields {
-                mock_setters_all.push(mock_setters(&krate, field, &prefix));
+                mock_setters_all.push(mock_setters(&krate, field, &prefix, &mut mock_names)?);
             }
         }
         labels.push(label);
@@ -900,8 +962,6 @@ fn expand_route(input: &DeriveInput) -> syn::Result<TokenStream2> {
     let checks = kind_asserts(&krate, &asserts);
     let mock_impl = if mock {
         let route_name_lit = route_name.clone();
-        let label_pairs = labels.iter().map(|l| quote!((#l, f64)));
-        let _ = label_pairs;
         let mut setters: TokenStream2 = mock_setters_all.into_iter().collect();
         setters.extend(quote! {
             /// Set the routing choice from a full distribution over labels.
@@ -919,8 +979,9 @@ fn expand_route(input: &DeriveInput) -> syn::Result<TokenStream2> {
     };
 
     Ok(quote! {
-        impl #krate::typed::Questions for #enum_name {
+        impl #impl_generics #krate::typed::Questions for #enum_name #ty_generics #where_clause {
             fn questions() -> ::std::collections::BTreeMap<::std::string::String, #krate::Question> {
+                #checks
                 let mut map = ::std::collections::BTreeMap::new();
                 map.insert(
                     ::std::string::String::from(#route_name),
@@ -952,7 +1013,7 @@ fn expand_route(input: &DeriveInput) -> syn::Result<TokenStream2> {
             }
         }
 
-        impl #krate::typed::Route for #enum_name {
+        impl #impl_generics #krate::typed::Route for #enum_name #ty_generics #where_clause {
             const ROUTE_NAME: &'static str = #route_name;
             const LABELS: &'static [&'static str] = &[#(#labels),*];
 
@@ -961,7 +1022,6 @@ fn expand_route(input: &DeriveInput) -> syn::Result<TokenStream2> {
             }
         }
 
-        #checks
         #mock_impl
     })
 }

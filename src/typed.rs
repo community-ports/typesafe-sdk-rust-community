@@ -89,6 +89,25 @@
 //! #[derive(Clone, Copy, Debug, PartialEq, Eq, ChoiceLabels)]
 //! enum Bad { A(u8) }
 //! ```
+//!
+//! `ChoiceLabels` and `ScoreLevels` reject generic enums with a clear message, and a fixture
+//! builder cannot have a field named after one of its own methods:
+//!
+//! ```compile_fail
+//! use typesafeai_sdk_community::ChoiceLabels;
+//! #[derive(Clone, Copy, Debug, PartialEq, Eq, ChoiceLabels)]
+//! enum Bad<T> { A, B(std::marker::PhantomData<T>) }
+//! ```
+//!
+//! ```compile_fail
+//! use typesafeai_sdk_community::{NoulAnswer, Questions};
+//! #[derive(Questions)]
+//! #[questions(mock)]
+//! struct Bad {
+//!     #[noul("Built?")]
+//!     build: NoulAnswer,
+//! }
+//! ```
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -168,6 +187,7 @@ impl Score {
 
 /// A choice answer whose labels are a [`ChoiceLabels`] enum.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct TypedChoice<T: ChoiceLabels> {
     /// The label with the highest probability.
     pub choice: T,
@@ -178,6 +198,13 @@ pub struct TypedChoice<T: ChoiceLabels> {
 }
 
 impl<T: ChoiceLabels> TypedChoice<T> {
+    /// A typed choice from its parts; probabilities are sorted from most to least likely.
+    pub fn new(choice: T, confidence: f64, probabilities: impl IntoIterator<Item = (T, f64)>) -> Self {
+        let mut probabilities: Vec<(T, f64)> = probabilities.into_iter().collect();
+        probabilities.sort_by(|a, b| b.1.total_cmp(&a.1));
+        TypedChoice { choice, confidence, probabilities }
+    }
+
     /// Convert an untyped answer, failing on any label the enum does not know.
     pub fn from_answer(name: &str, answer: &ChoiceAnswer) -> Result<Self, AnswerError> {
         let unknown = |label: &str| AnswerError::UnknownLabel { name: name.to_string(), label: label.to_string() };
@@ -213,6 +240,7 @@ impl<T: ChoiceLabels> TypedChoice<T> {
 
 /// A score answer whose rubric is a [`ScoreLevels`] enum.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct TypedScore<T: ScoreLevels> {
     /// Expected score: the probability-weighted average of the levels.
     pub score: f64,
@@ -225,6 +253,13 @@ pub struct TypedScore<T: ScoreLevels> {
 }
 
 impl<T: ScoreLevels> TypedScore<T> {
+    /// A typed score from its parts; probabilities are sorted by level.
+    pub fn new(score: f64, confidence: f64, most_likely: T, probabilities: impl IntoIterator<Item = (T, f64)>) -> Self {
+        let mut probabilities: Vec<(T, f64)> = probabilities.into_iter().collect();
+        probabilities.sort_by_key(|(level, _)| level.level());
+        TypedScore { score, confidence, most_likely, probabilities }
+    }
+
     /// Convert an untyped answer, failing on any level the enum does not know.
     pub fn from_answer(name: &str, answer: &ScoreAnswer) -> Result<Self, AnswerError> {
         let unknown = |level: u32| AnswerError::UnknownLevel { name: name.to_string(), level };
@@ -366,12 +401,31 @@ impl<T: FromAnswer> FromAnswer for Option<T> {
 
 // --- Compile-time kind checks -----------------------------------------------------------------
 
-/// Field types a `#[noul]` question may deserialize into.
-pub trait NoulTarget {}
-/// Field types a `#[choice]` question may deserialize into.
-pub trait ChoiceTarget {}
-/// Field types a `#[score]` question may deserialize into.
-pub trait ScoreTarget {}
+/// Implementation detail of the derive macros; not part of the public API.
+#[doc(hidden)]
+pub mod __private {
+    /// Seals the marker traits: only this crate and its derive macros implement them.
+    pub trait Sealed {}
+}
+use __private::Sealed;
+
+impl Sealed for NoulAnswer {}
+impl Sealed for ChoiceAnswer {}
+impl Sealed for ScoreAnswer {}
+impl Sealed for Answer {}
+impl Sealed for bool {}
+impl Sealed for f64 {}
+impl<T: ChoiceLabels> Sealed for TypedChoice<T> {}
+impl<T: ScoreLevels> Sealed for TypedScore<T> {}
+impl<T: Sealed> Sealed for Option<T> {}
+
+/// Field types a `#[noul]` question may deserialize into. Sealed: implemented by the SDK's
+/// answer types and by the derive macros.
+pub trait NoulTarget: Sealed {}
+/// Field types a `#[choice]` question may deserialize into. Sealed.
+pub trait ChoiceTarget: Sealed {}
+/// Field types a `#[score]` question may deserialize into. Sealed.
+pub trait ScoreTarget: Sealed {}
 
 impl NoulTarget for NoulAnswer {}
 impl NoulTarget for bool {}
@@ -390,13 +444,13 @@ impl ScoreTarget for Answer {}
 impl<T: ScoreLevels> ScoreTarget for TypedScore<T> {}
 impl<T: ScoreTarget> ScoreTarget for Option<T> {}
 
-/// Field types that carry their own choice criteria.
-pub trait ChoiceCriteria {
+/// Field types that carry their own choice criteria. Sealed.
+pub trait ChoiceCriteria: Sealed {
     /// The labels and descriptions to send.
     fn criteria() -> BTreeMap<String, Option<Value>>;
 }
-/// Field types that carry their own score rubric.
-pub trait ScoreCriteria {
+/// Field types that carry their own score rubric. Sealed.
+pub trait ScoreCriteria: Sealed {
     /// The ordered level descriptions to send.
     fn criteria() -> Vec<Value>;
 }
@@ -461,6 +515,7 @@ pub trait Route: Questions {
 
 /// A routed value together with the routing choice and the full response.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct Routed<T> {
     /// The selected variant with its fields filled.
     pub route: T,
@@ -502,8 +557,8 @@ impl<T: Route> Routed<T> {
 }
 
 /// The [`ChoiceLabels`] enum behind a choice-shaped field type, used by generated fixture
-/// builders.
-pub trait ChoiceOf {
+/// builders. Sealed.
+pub trait ChoiceOf: Sealed {
     /// The labels enum.
     type Labels: ChoiceLabels;
 }
@@ -515,8 +570,8 @@ impl<T: ChoiceOf> ChoiceOf for Option<T> {
 }
 
 /// The [`ScoreLevels`] enum behind a score-shaped field type, used by generated fixture
-/// builders.
-pub trait ScoreOf {
+/// builders. Sealed.
+pub trait ScoreOf: Sealed {
     /// The levels enum.
     type Levels: ScoreLevels;
 }
@@ -529,6 +584,7 @@ impl<T: ScoreOf> ScoreOf for Option<T> {
 
 /// A parsed question set together with the response it came from.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct Answered<T> {
     /// The typed answers.
     pub answers: T,

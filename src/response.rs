@@ -18,6 +18,7 @@ use crate::error::header_str;
 ///
 /// See the [noul primitive](https://docs.typesafe.ai/primitives/noul) for details.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct NoulAnswer {
     /// Probability of a yes answer or a true statement, from 0 to 1. Values near 1 favor yes,
     /// values near 0 favor no, and values near 0.5 indicate uncertainty.
@@ -28,6 +29,7 @@ pub struct NoulAnswer {
 ///
 /// See the [choice primitive](https://docs.typesafe.ai/primitives/choice) for details.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ChoiceAnswer {
     /// The name of the choice with the highest probability among the question's criteria.
     pub choice: String,
@@ -41,6 +43,7 @@ pub struct ChoiceAnswer {
 ///
 /// See the [score primitive](https://docs.typesafe.ai/primitives/score) for details.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ScoreAnswer {
     /// Expected score: the probability-weighted average of the rubric levels. May fall between
     /// integer levels.
@@ -53,7 +56,44 @@ pub struct ScoreAnswer {
     pub probabilities: BTreeMap<u32, f64>,
 }
 
+impl NoulAnswer {
+    /// A yes/no answer with the given probability of yes.
+    pub fn new(noul: f64) -> Self {
+        NoulAnswer { noul }
+    }
+}
+
+impl ChoiceAnswer {
+    /// A choice answer from its parts.
+    pub fn new(
+        choice: impl Into<String>,
+        confidence: f64,
+        probabilities: impl IntoIterator<Item = (impl Into<String>, f64)>,
+    ) -> Self {
+        ChoiceAnswer {
+            choice: choice.into(),
+            confidence,
+            probabilities: probabilities.into_iter().map(|(label, p)| (label.into(), p)).collect(),
+        }
+    }
+}
+
 impl ScoreAnswer {
+    /// A score answer from its parts.
+    pub fn new(
+        score: f64,
+        confidence: f64,
+        legend: impl IntoIterator<Item = (u32, impl Into<Value>)>,
+        probabilities: impl IntoIterator<Item = (u32, f64)>,
+    ) -> Self {
+        ScoreAnswer {
+            score,
+            confidence,
+            legend: legend.into_iter().map(|(level, text)| (level, text.into())).collect(),
+            probabilities: probabilities.into_iter().collect(),
+        }
+    }
+
     /// The rubric level with the highest probability, if any.
     pub fn most_likely(&self) -> Option<u32> {
         self.probabilities.iter().max_by(|a, b| a.1.total_cmp(b.1)).map(|(level, _)| *level)
@@ -128,6 +168,7 @@ impl From<ScoreAnswer> for Answer {
 
 /// Token counts for a request, when reported by the API.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Usage {
     /// Number of input tokens used, or `None` when the API did not report it.
     #[serde(default)]
@@ -139,6 +180,7 @@ pub struct Usage {
 
 /// HTTP metadata attached to every decoded response.
 #[derive(Clone, Debug, Default)]
+#[non_exhaustive]
 pub struct ResponseMeta {
     /// The HTTP status of the response.
     pub status: StatusCode,
@@ -146,6 +188,13 @@ pub struct ResponseMeta {
     pub headers: HeaderMap,
     /// Whether the response was served from the client's cache instead of the API.
     pub from_cache: bool,
+}
+
+impl Usage {
+    /// Token counts.
+    pub fn new(input_tokens: u64, output_tokens: u64) -> Self {
+        Usage { input_tokens: Some(input_tokens), output_tokens: Some(output_tokens) }
+    }
 }
 
 impl ResponseMeta {
@@ -163,6 +212,7 @@ impl ResponseMeta {
 ///
 /// See [System One](https://docs.typesafe.ai/concepts/system-one) for details.
 #[derive(Clone, Debug, Default)]
+#[non_exhaustive]
 pub struct SystemOneResponse {
     /// The model used to answer the request.
     pub model: String,
@@ -218,6 +268,7 @@ impl SystemOneResponse {
 
 /// Metadata describing a single available model.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ModelMetadata {
     /// Model name or alias accepted by a request's model field.
     pub name: String,
@@ -229,6 +280,7 @@ pub struct ModelMetadata {
 
 /// The models available to the account.
 #[derive(Clone, Debug, Default, Deserialize)]
+#[non_exhaustive]
 pub struct ListModelsResponse {
     /// The available models.
     pub models: Vec<ModelMetadata>,
@@ -246,6 +298,7 @@ impl ListModelsResponse {
 
 /// A successful response left undecoded: status, headers, and raw body bytes.
 #[derive(Clone, Debug, Default)]
+#[non_exhaustive]
 pub struct RawResponse {
     /// HTTP status and headers of the response.
     pub meta: ResponseMeta,

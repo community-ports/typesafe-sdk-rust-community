@@ -293,6 +293,19 @@ mod tests {
         assert_eq!(tight.next_delay(1, started, &error), None);
         let none = RetryPolicy::none();
         assert_eq!(none.next_delay(1, started, &error), None);
+
+        // A Retry-After that would overrun the budget stops the loop instead of sleeping past it.
+        let mut headers = HeaderMap::new();
+        headers.insert("retry-after", HeaderValue::from_static("45"));
+        let long_wait = api_error(429, headers);
+        assert_eq!(RetryPolicy::default().next_delay(1, started, &long_wait), None);
+        assert_eq!(
+            RetryPolicy::default().timeout(None).next_delay(1, started, &long_wait),
+            Some(Duration::from_secs(45))
+        );
+        assert!(
+            !RetryPolicy::default().respect_retry_after(false).next_delay(1, started, &long_wait).unwrap().is_zero()
+        );
     }
 
     #[test]

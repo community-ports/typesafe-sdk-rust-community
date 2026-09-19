@@ -46,6 +46,7 @@ use crate::typed::{Answered, ChoiceLabels, Questions, ScoreLevels};
 
 /// A labeled example: the state to send and the expected answer.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct Example<L> {
     /// The state, as for any request.
     pub state: Value,
@@ -112,6 +113,7 @@ impl<'a, T: Questions, L> Evaluate<'a, T, L> {
 
 /// Answers paired with labels, ready for metrics.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct EvalRun<T, L> {
     /// Each successful example's typed answers and its label.
     pub results: Vec<(Answered<T>, L)>,
@@ -214,6 +216,7 @@ impl TypeSafeClient {
 
 /// One row of a calibration table.
 #[derive(Clone, Debug, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct CalibrationBin {
     /// Lower bound of the predicted-probability bin (inclusive).
     pub lower: f64,
@@ -229,6 +232,7 @@ pub struct CalibrationBin {
 
 /// Metrics at one decision threshold.
 #[derive(Clone, Debug, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct ThresholdPoint {
     /// Predict yes at or above this probability.
     pub threshold: f64,
@@ -246,6 +250,7 @@ pub struct ThresholdPoint {
 
 /// How a yes/no question performs against labels.
 #[derive(Clone, Debug, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct BinaryReport {
     /// Examples evaluated.
     pub n: usize,
@@ -406,6 +411,7 @@ impl fmt::Display for BinaryReport {
 
 /// Precision, recall, and support for one label.
 #[derive(Clone, Debug, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct LabelStats {
     /// Correct predictions of this label over all predictions of it.
     pub precision: f64,
@@ -419,6 +425,7 @@ pub struct LabelStats {
 
 /// What happens if answers at or above a confidence are accepted automatically.
 #[derive(Clone, Debug, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct CoveragePoint {
     /// Accept at or above this confidence.
     pub threshold: f64,
@@ -430,6 +437,7 @@ pub struct CoveragePoint {
 
 /// How a choice question performs against labels.
 #[derive(Clone, Debug, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct ChoiceReport {
     /// Examples evaluated.
     pub n: usize,
@@ -534,6 +542,7 @@ impl fmt::Display for ChoiceReport {
 
 /// How a score question performs against labeled levels.
 #[derive(Clone, Debug, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct ScoreReport {
     /// Examples evaluated.
     pub n: usize,

@@ -40,6 +40,7 @@ use crate::transport::{HttpResponse, PreparedRequest};
 
 /// Everything the default key is computed from, offered to a custom key function.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct KeyInput<'a> {
     /// The HTTP method.
     pub method: &'a str,
@@ -53,6 +54,7 @@ pub struct KeyInput<'a> {
 
 /// A cached successful response.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct CachedResponse {
     /// The HTTP status (always successful).
     pub status: u16,
@@ -120,7 +122,7 @@ impl InMemoryStore {
 
     /// How many entries are stored, including ones that may have expired.
     pub fn len(&self) -> usize {
-        self.entries.lock().expect("cache lock").len()
+        self.entries.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).len()
     }
 
     /// Whether the store is empty.
@@ -131,7 +133,7 @@ impl InMemoryStore {
 
 impl CacheStore for InMemoryStore {
     fn get(&self, key: &str) -> Option<CachedResponse> {
-        let mut entries = self.entries.lock().expect("cache lock");
+        let mut entries = self.entries.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let expired = entries.get(key).is_some_and(|e| e.expires.is_some_and(|at| at <= Instant::now()));
         if expired {
             entries.remove(key);
@@ -143,7 +145,7 @@ impl CacheStore for InMemoryStore {
     }
 
     fn set(&self, key: String, response: CachedResponse, ttl: Option<Duration>) {
-        let mut entries = self.entries.lock().expect("cache lock");
+        let mut entries = self.entries.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         if entries.len() >= self.capacity && !entries.contains_key(&key) {
             let now = Instant::now();
             entries.retain(|_, e| e.expires.is_none_or(|at| at > now));
@@ -158,11 +160,11 @@ impl CacheStore for InMemoryStore {
     }
 
     fn remove(&self, key: &str) {
-        self.entries.lock().expect("cache lock").remove(key);
+        self.entries.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).remove(key);
     }
 
     fn clear(&self) {
-        self.entries.lock().expect("cache lock").clear();
+        self.entries.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clear();
     }
 }
 
@@ -180,6 +182,7 @@ pub enum CacheMode {
 
 /// Hit and miss counters.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CacheStats {
     /// Requests answered from the cache.
     pub hits: u64,

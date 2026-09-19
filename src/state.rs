@@ -30,6 +30,11 @@
 //! a `.` or `[` must resolve from the root of the state. A bare identifier must exist as a key
 //! somewhere in the state, at any depth, so references to keys inside array items still pass.
 //! Backticks around anything else (`` `en-US` ``, `` `POST /v1` ``) are ignored.
+//!
+//! Cost: a dotted path resolves directly; a bare identifier walks the whole state, so a request
+//! with many bare references and a very large state pays a full traversal per reference. That
+//! is negligible next to a request, but worth knowing when `check_paths` is on for every item
+//! of a large batch.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -40,6 +45,7 @@ use crate::question::Question;
 
 /// A backticked reference that does not exist in the state.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PathIssue {
     /// The question that references the path.
     pub question: String,
@@ -55,6 +61,7 @@ impl fmt::Display for PathIssue {
 
 /// One or more question references that the state does not contain.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct StatePathError {
     /// Every unresolved reference.
     pub issues: Vec<PathIssue>,

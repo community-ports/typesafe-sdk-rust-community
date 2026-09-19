@@ -152,19 +152,10 @@ async fn route_errors() {
 #[test]
 fn composite_scoring() {
     let risk = SpamRisk {
-        credentials: NoulAnswer { noul: 0.8 },
-        spoofed: Some(NoulAnswer { noul: 0.5 }),
-        reward: ScoreAnswer {
-            score: 1.0,
-            confidence: 1.0,
-            legend: [(0, json!("a")), (2, json!("c"))].into(),
-            probabilities: [(1, 1.0)].into(),
-        },
-        tone: TypedChoice {
-            choice: Tone::Angry,
-            confidence: 0.7,
-            probabilities: vec![(Tone::Angry, 0.7), (Tone::Calm, 0.3)],
-        },
+        credentials: NoulAnswer::new(0.8),
+        spoofed: Some(NoulAnswer::new(0.5)),
+        reward: ScoreAnswer::new(1.0, 1.0, [(0, "a"), (2, "c")], [(1, 1.0)]),
+        tone: TypedChoice::new(Tone::Angry, 0.7, [(Tone::Angry, 0.7), (Tone::Calm, 0.3)]),
         ignored: true,
     };
     let weights = SpamRisk::default_weights();
@@ -355,7 +346,7 @@ async fn state_path_check() {
 
 #[tokio::test]
 async fn response_cache() {
-    use typesafeai_sdk_community::cache::{Cache, CacheStats};
+    use typesafeai_sdk_community::cache::Cache;
 
     let mock = MockTransport::new();
     mock.enqueue(MockResponse::answers().noul("billing", 0.9).request_id("first"))
@@ -383,7 +374,8 @@ async fn response_cache() {
     assert_eq!(hit.noul("billing").unwrap().noul, 0.9);
     assert_eq!(hit.request_id(), Some("first"));
     assert_eq!(mock.request_count(), 1);
-    assert_eq!(cache.stats(), CacheStats { hits: 1, misses: 1, stores: 1 });
+    let stats = cache.stats();
+    assert_eq!((stats.hits, stats.misses, stats.stores), (1, 1, 1));
 
     // A different scope is a different key.
     let scoped = ask(&client).cache_scope("tenant-b").await.unwrap();
@@ -475,4 +467,31 @@ fn blocking_cache() {
     assert!(hit.meta.from_cache);
     assert_eq!(mock.request_count(), 1);
     assert_eq!(client.cache().unwrap().stats().hits, 1);
+}
+
+#[derive(Debug, PartialEq, Route)]
+#[route("What is it?")]
+enum Generic<
+    T: typesafeai_sdk_community::typed::FromAnswer
+        + typesafeai_sdk_community::typed::NoulTarget
+        + std::fmt::Debug
+        + PartialEq,
+> {
+    #[route(describe = "A thing")]
+    Thing {
+        #[noul("Is it big?")]
+        big: T,
+    },
+    Nothing,
+}
+
+#[tokio::test]
+async fn route_supports_generic_enums() {
+    let mock = MockTransport::new();
+    mock.enqueue(MockResponse::answers().choice_label("route", "thing").noul("thing.big", 0.9));
+    let routed = mock.client().route::<Generic<bool>>("x").await.unwrap();
+    assert_eq!(routed, Generic::Thing { big: true });
+    mock.enqueue(MockResponse::answers().choice_label("route", "nothing"));
+    let routed = mock.client().route::<Generic<f64>>("x").await.unwrap();
+    assert_eq!(routed, Generic::Nothing);
 }

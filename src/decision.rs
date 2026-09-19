@@ -6,16 +6,12 @@
 //! use typesafeai_sdk_community::decision::{Bands, Decision, Gate, Outcome};
 //! use typesafeai_sdk_community::{ChoiceAnswer, NoulAnswer};
 //!
-//! let spam = NoulAnswer { noul: 0.55 };
+//! let spam = NoulAnswer::new(0.55);
 //! assert!(spam.decide(0.5));
 //! assert_eq!(spam.decide_with(Bands::new(0.3, 0.7)), Decision::Uncertain);
 //!
 //! let gate = Gate::new(0.85, 0.6); // accept at >= 0.85, review at >= 0.6, reject below
-//! let tone = ChoiceAnswer {
-//!     choice: "angry".into(),
-//!     confidence: 0.7,
-//!     probabilities: [("angry".to_string(), 0.7), ("calm".to_string(), 0.3)].into(),
-//! };
+//! let tone = ChoiceAnswer::new("angry", 0.7, [("angry", 0.7), ("calm", 0.3)]);
 //! assert_eq!(gate.evaluate(tone.confidence), Outcome::Review);
 //! assert!((tone.margin() - 0.4).abs() < 1e-9);
 //! ```

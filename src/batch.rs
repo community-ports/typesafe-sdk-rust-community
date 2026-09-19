@@ -65,7 +65,7 @@ impl Pacer {
     /// Pause all requests until at least `delay` from now (never shortens an existing pause).
     pub fn pause_for(&self, delay: Duration) {
         let until = Instant::now() + delay;
-        let mut current = self.until.lock().expect("pacer lock");
+        let mut current = self.until.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         if current.is_none_or(|existing| until > existing) {
             *current = Some(until);
         }
@@ -129,6 +129,7 @@ impl Transport for PacedTransport {
 
 /// Progress after each completed item, for [`Batch::on_progress`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Progress {
     /// The input index that just finished.
     pub index: usize,
@@ -243,6 +244,12 @@ impl<'a, T: Questions> Batch<'a, T> {
 
     /// Run every request and collect the outcome. Never fails as a whole: each item is its own
     /// `Result`, in input order.
+    ///
+    /// Cancellation: if the returned future is dropped before it completes (a `select!` or
+    /// `tokio::time::timeout` gave up on it), in-flight requests are abandoned and every result
+    /// so far is discarded; [`on_progress`](Self::on_progress) callbacks that already fired are
+    /// the only record of partial progress. Keep the future alive to get partial results, or
+    /// split large inputs into smaller batches.
     pub async fn run(self) -> BatchOutcome<Answered<T>> {
         let started = Instant::now();
         let total = self.states.len();
@@ -304,6 +311,7 @@ impl<'a, T: Questions> Batch<'a, T> {
 
 /// The result of a batch: one `Result` per input, in input order, plus totals.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct BatchOutcome<T> {
     /// One result per input state, in the same order.
     pub results: Vec<Result<T>>,
@@ -378,6 +386,7 @@ enum Relevance {
 
 /// A candidate with its relevance.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct Ranked<C> {
     /// The candidate's position in the input.
     pub index: usize,
@@ -572,6 +581,7 @@ impl Questions for RelevanceQuestions {
 
 /// The result of [`TypeSafeClient::find`]: which items match a query, from one request.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct Found {
     /// Whether any item answers the query, as a probability.
     pub present: NoulAnswer,

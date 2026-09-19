@@ -335,6 +335,7 @@ impl MockResponse {
 
 /// A request a [`MockTransport`] received.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct RecordedRequest {
     /// The HTTP method.
     pub method: String,
@@ -417,39 +418,39 @@ impl MockTransport {
     /// Queue the next response. Responses are served in order. Accepts a [`MockResponse`] or a
     /// generated fixture builder.
     pub fn enqueue(&self, response: impl Into<MockResponse>) -> &Self {
-        self.state.lock().expect("mock lock").queue.push_back(response.into());
+        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).queue.push_back(response.into());
         self
     }
 
     /// The response served whenever the queue is empty.
     pub fn fallback(&self, response: impl Into<MockResponse>) -> &Self {
-        self.state.lock().expect("mock lock").fallback = Some(response.into());
+        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).fallback = Some(response.into());
         self
     }
 
     /// Every request received so far, in order.
     pub fn requests(&self) -> Vec<RecordedRequest> {
-        self.state.lock().expect("mock lock").requests.clone()
+        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).requests.clone()
     }
 
     /// The most recent request.
     pub fn last_request(&self) -> Option<RecordedRequest> {
-        self.state.lock().expect("mock lock").requests.last().cloned()
+        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).requests.last().cloned()
     }
 
     /// How many requests were received.
     pub fn request_count(&self) -> usize {
-        self.state.lock().expect("mock lock").requests.len()
+        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).requests.len()
     }
 
     /// How many queued responses have not been served.
     pub fn pending(&self) -> usize {
-        self.state.lock().expect("mock lock").queue.len()
+        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).queue.len()
     }
 
     /// Forget recorded requests and queued responses.
     pub fn reset(&self) {
-        *self.state.lock().expect("mock lock") = State::default();
+        *self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = State::default();
     }
 
     /// An async client wired to this mock, with a dummy API key, retries disabled, and state
@@ -482,7 +483,7 @@ impl MockTransport {
 
     fn handle(&self, request: HttpRequest) -> Result<HttpResponse> {
         let response = {
-            let mut state = self.state.lock().expect("mock lock");
+            let mut state = self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
             let attempt = request
                 .headers
                 .get("x-typesafe-retry-count")
@@ -506,7 +507,7 @@ impl MockTransport {
 
 impl std::fmt::Debug for MockTransport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let state = self.state.lock().expect("mock lock");
+        let state = self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         f.debug_struct("MockTransport")
             .field("pending", &state.queue.len())
             .field("requests", &state.requests.len())
@@ -532,6 +533,7 @@ impl crate::transport::BlockingTransport for MockTransport {
 
 /// A recorded request, without headers so the API key never lands on disk.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct CassetteRequest {
     /// The HTTP method.
     pub method: String,
@@ -544,6 +546,7 @@ pub struct CassetteRequest {
 
 /// A recorded response.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct CassetteResponse {
     /// The HTTP status.
     pub status: u16,
@@ -596,6 +599,7 @@ impl CassetteResponse {
 
 /// One recorded request/response pair.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Exchange {
     /// What was sent.
     pub request: CassetteRequest,
@@ -605,6 +609,7 @@ pub struct Exchange {
 
 /// Recorded exchanges, serializable to JSON for checking into a repository.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Cassette {
     /// The exchanges in the order they happened.
     pub exchanges: Vec<Exchange>,
@@ -652,7 +657,7 @@ impl Recorder {
 
     /// The exchanges recorded so far.
     pub fn cassette(&self) -> Cassette {
-        Cassette { exchanges: self.exchanges.lock().expect("recorder lock").clone() }
+        Cassette { exchanges: self.exchanges.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone() }
     }
 }
 

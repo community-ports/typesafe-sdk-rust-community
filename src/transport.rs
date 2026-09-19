@@ -43,6 +43,8 @@ impl PreparedRequest {
     pub(crate) fn endpoint(&self) -> String {
         let url = Url::parse(&self.url)
             .map(|mut url| {
+                // These only fail for cannot-be-a-base URLs (`mailto:` and the like), which an
+                // http(s) API root never is; the URL is used unchanged in that case.
                 let _ = url.set_username("");
                 let _ = url.set_password(None);
                 url.set_query(None);
@@ -305,6 +307,7 @@ impl Decode for SystemOneResponse {
 /// One HTTP attempt as handed to a [`Transport`]: the prepared request with this attempt's
 /// headers already applied.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct HttpRequest {
     /// The HTTP method.
     pub method: Method,
@@ -320,6 +323,7 @@ pub struct HttpRequest {
 
 /// The undecoded result of one HTTP attempt.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct HttpResponse {
     /// The HTTP status.
     pub status: StatusCode,
@@ -327,6 +331,13 @@ pub struct HttpResponse {
     pub headers: HeaderMap,
     /// The raw body.
     pub body: Vec<u8>,
+}
+
+impl HttpResponse {
+    /// A response from its parts, for [`Transport`] implementations.
+    pub fn new(status: StatusCode, headers: HeaderMap, body: Vec<u8>) -> Self {
+        HttpResponse { status, headers, body }
+    }
 }
 
 pub(crate) type RawHttp = HttpResponse;
