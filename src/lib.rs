@@ -106,6 +106,7 @@ pub mod batch;
 pub mod composite;
 pub mod constants;
 pub mod decision;
+pub mod state;
 pub mod typed;
 
 mod client;

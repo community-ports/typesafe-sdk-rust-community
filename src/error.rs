@@ -58,6 +58,11 @@ pub enum Error {
     /// know.
     #[error(transparent)]
     Answer(#[from] AnswerError),
+
+    /// A question references a backticked state path that the state does not contain; nothing
+    /// was sent. Raised only when path checking is enabled (see the `state` module).
+    #[error(transparent)]
+    StatePath(#[from] crate::state::StatePathError),
 }
 
 impl Error {

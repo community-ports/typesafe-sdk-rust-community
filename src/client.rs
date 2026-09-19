@@ -32,6 +32,7 @@ pub(crate) struct ClientOptions {
     pub(crate) timeout: Option<Duration>,
     pub(crate) headers: HeaderMap,
     pub(crate) base_url: Option<String>,
+    pub(crate) check_paths: bool,
     pub(crate) error: Option<Error>,
 }
 
@@ -42,7 +43,8 @@ impl ClientOptions {
         }
         let retry = self.retry.unwrap_or_default();
         retry.validate()?;
-        let config = Config::resolve(self.api_key, self.base_url, self.model, self.timeout, self.headers)?;
+        let mut config = Config::resolve(self.api_key, self.base_url, self.model, self.timeout, self.headers)?;
+        config.check_paths = self.check_paths;
         Ok((config, retry))
     }
 }
@@ -120,6 +122,15 @@ macro_rules! client_builder_options {
         /// Defaults to `https://api.typesafe.ai`.
         pub fn base_url(mut self, base_url: impl Into<String>) -> Self {
             self.options.base_url = Some(base_url.into());
+            self
+        }
+
+        /// Check every request's questions for backticked state paths that the state does not
+        /// contain, and fail with [`Error::StatePath`](crate::Error::StatePath) instead of
+        /// sending; see the [`state`](crate::state) module. Off by default; a request can
+        /// override it with `.check_paths()` / `.skip_path_check()`.
+        pub fn check_paths(mut self, enabled: bool) -> Self {
+            self.options.check_paths = enabled;
             self
         }
     };
@@ -359,6 +370,7 @@ pub(crate) struct SystemOneParams {
     timeout: Option<Duration>,
     headers: HeaderMap,
     extra_body: Map<String, Value>,
+    check_paths: Option<bool>,
     error: Option<Error>,
 }
 
@@ -372,6 +384,7 @@ impl SystemOneParams {
             timeout: None,
             headers: HeaderMap::new(),
             extra_body: Map::new(),
+            check_paths: None,
             error: None,
         }
     }
@@ -381,6 +394,12 @@ impl SystemOneParams {
             return Err(error);
         }
         validate_questions(&self.questions)?;
+        if self.check_paths.unwrap_or(config.check_paths) {
+            let issues = crate::state::check(&self.state, &self.questions);
+            if !issues.is_empty() {
+                return Err(crate::state::StatePathError { issues }.into());
+            }
+        }
         let mut body = Map::new();
         body.insert("state".into(), self.state.clone());
         body.insert("model".into(), Value::String(self.model.clone().unwrap_or_else(|| config.default_model.clone())));
@@ -455,6 +474,19 @@ impl<C> SystemOneRequest<'_, C> {
     /// those fields overrides it, and object values are replaced rather than deep-merged.
     pub fn extra_body(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
         self.params.extra_body.insert(key.into(), value.into());
+        self
+    }
+
+    /// Fail before sending if a question references a backticked state path the state does
+    /// not contain; see the [`state`](crate::state) module.
+    pub fn check_paths(mut self) -> Self {
+        self.params.check_paths = Some(true);
+        self
+    }
+
+    /// Skip the state path check for this call even if the client enables it.
+    pub fn skip_path_check(mut self) -> Self {
+        self.params.check_paths = Some(false);
         self
     }
 }
@@ -553,6 +585,18 @@ impl<'a, C, T: Questions> AskRequest<'a, C, T> {
         self
     }
 
+    /// Fail before sending if a question references a state path the state does not contain.
+    pub fn check_paths(mut self) -> Self {
+        self.inner = self.inner.check_paths();
+        self
+    }
+
+    /// Skip the state path check for this call.
+    pub fn skip_path_check(mut self) -> Self {
+        self.inner = self.inner.skip_path_check();
+        self
+    }
+
     /// The underlying untyped request, for anything not exposed here.
     pub fn into_inner(self) -> SystemOneRequest<'a, C> {
         self.inner
@@ -636,6 +680,18 @@ impl<'a, C, T: Route> RouteRequest<'a, C, T> {
     /// An additional top-level request-body field; see [`SystemOneRequest::extra_body`].
     pub fn extra_body(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
         self.inner = self.inner.extra_body(key, value);
+        self
+    }
+
+    /// Fail before sending if a question references a state path the state does not contain.
+    pub fn check_paths(mut self) -> Self {
+        self.inner = self.inner.check_paths();
+        self
+    }
+
+    /// Skip the state path check for this call.
+    pub fn skip_path_check(mut self) -> Self {
+        self.inner = self.inner.skip_path_check();
         self
     }
 

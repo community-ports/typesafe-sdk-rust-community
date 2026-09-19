@@ -155,6 +155,7 @@ pub struct Batch<'a, T> {
     extra: BTreeMap<String, Question>,
     progress: Option<ProgressFn>,
     pacer: Option<Pacer>,
+    check_paths: Option<bool>,
     header_error: Option<Error>,
     _answers: std::marker::PhantomData<fn() -> T>,
 }
@@ -172,9 +173,17 @@ impl<'a, T: Questions> Batch<'a, T> {
             extra: BTreeMap::new(),
             progress: None,
             pacer: None,
+            check_paths: None,
             header_error: None,
             _answers: std::marker::PhantomData,
         }
+    }
+
+    /// Fail each item before sending if a question references a state path its state does not
+    /// contain; see the [`state`](crate::state) module.
+    pub fn check_paths(mut self) -> Self {
+        self.check_paths = Some(true);
+        self
     }
 
     /// Maximum requests in flight at once. Default 4.
@@ -242,8 +251,8 @@ impl<'a, T: Questions> Batch<'a, T> {
         }
         let pacer = self.pacer.unwrap_or_default();
         let client = self.client.paced(pacer);
-        let (model, retry, timeout, headers, extra, progress) =
-            (self.model, self.retry, self.timeout, self.headers, self.extra, self.progress);
+        let (model, retry, timeout, headers, extra, progress, check_paths) =
+            (self.model, self.retry, self.timeout, self.headers, self.extra, self.progress, self.check_paths);
         let completed = std::sync::atomic::AtomicUsize::new(0);
 
         let mut slots: Vec<Option<Result<Answered<T>>>> = (0..total).map(|_| None).collect();
@@ -253,6 +262,9 @@ impl<'a, T: Questions> Batch<'a, T> {
                     (&client, &model, &retry, &timeout, &headers, &extra);
                 async move {
                     let mut request = client.ask::<T>(state);
+                    if check_paths == Some(true) {
+                        request = request.check_paths();
+                    }
                     if let Some(model) = model {
                         request = request.model(model.clone());
                     }

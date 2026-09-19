@@ -306,3 +306,48 @@ fn blocking_route_and_mock() {
     assert_eq!(client.route::<Intent>("x").send().unwrap(), Intent::Other);
     assert_eq!(mock.request_count(), 1);
 }
+
+#[derive(Debug, Questions)]
+struct PathBound {
+    #[noul("Is `ticket.message` about billing?")]
+    billing: NoulAnswer,
+    #[noul("Is the `sender` known?")]
+    known: NoulAnswer,
+}
+
+#[tokio::test]
+async fn state_path_check() {
+    use typesafeai_sdk_community::typed::Questions as _;
+
+    let mock = MockTransport::new();
+    mock.fallback(MockResponse::answers().noul("billing", 0.5).noul("known", 0.5));
+    let client = mock.client(); // path checking on by default
+
+    // Everything referenced exists: sends normally.
+    let ok_state = json!({"ticket": {"message": "hi"}, "meta": {"sender": "a@b"}});
+    client.ask::<PathBound>(ok_state.clone()).await.unwrap();
+    assert_eq!(mock.request_count(), 1);
+
+    // A renamed field: fails before sending, naming the question and the path.
+    let bad_state = json!({"ticket": {"body": "hi"}, "meta": {"sender": "a@b"}});
+    let error = client.ask::<PathBound>(bad_state.clone()).await.unwrap_err();
+    let Error::StatePath(problem) = &error else { panic!("expected StatePath, got {error}") };
+    assert_eq!(problem.issues.len(), 1);
+    assert_eq!(problem.issues[0].question, "billing");
+    assert_eq!(problem.issues[0].path, "ticket.message");
+    assert_eq!(mock.request_count(), 1);
+    assert_eq!(PathBound::check_paths(&bad_state).len(), 1);
+
+    // Per-call opt out, and a client with the check off.
+    client.ask::<PathBound>(bad_state.clone()).skip_path_check().await.unwrap();
+    assert_eq!(mock.request_count(), 2);
+    let unchecked =
+        TypeSafeClient::builder().api_key("k").retry(RetryPolicy::none()).transport(mock.clone()).build().unwrap();
+    unchecked.ask::<PathBound>(bad_state.clone()).await.unwrap();
+    assert!(unchecked.ask::<PathBound>(bad_state.clone()).check_paths().await.is_err());
+
+    // Batch: each item is checked against its own state.
+    let outcome = client.batch::<PathBound>([ok_state, bad_state]).check_paths().run().await;
+    assert_eq!(outcome.succeeded(), 1);
+    assert!(matches!(outcome.results[1], Err(Error::StatePath(_))));
+}

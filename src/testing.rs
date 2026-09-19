@@ -452,14 +452,16 @@ impl MockTransport {
         *self.state.lock().expect("mock lock") = State::default();
     }
 
-    /// An async client wired to this mock, with a dummy API key and retries disabled. Build
-    /// your own with [`TypeSafeClient::builder`] and [`transport`](crate::ClientBuilder::transport)
-    /// to test retry behavior.
+    /// An async client wired to this mock, with a dummy API key, retries disabled, and state
+    /// path checking on (so a test catches a question that references a missing state field).
+    /// Build your own with [`TypeSafeClient::builder`] and
+    /// [`transport`](crate::ClientBuilder::transport) to test retry behavior or skip the check.
     pub fn client(&self) -> TypeSafeClient {
         TypeSafeClient::builder()
             .api_key("mock-api-key")
             .base_url("http://mock.typesafe.invalid")
             .retry(RetryPolicy::none())
+            .check_paths(true)
             .transport(self.clone())
             .build()
             .expect("mock client configuration is valid")
@@ -472,6 +474,7 @@ impl MockTransport {
             .api_key("mock-api-key")
             .base_url("http://mock.typesafe.invalid")
             .retry(RetryPolicy::none())
+            .check_paths(true)
             .transport(self.clone())
             .build()
             .expect("mock client configuration is valid")

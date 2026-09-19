@@ -434,6 +434,12 @@ pub trait Questions: Sized {
 
     /// Build from a response's answers.
     fn from_response(response: &SystemOneResponse) -> Result<Self, AnswerError>;
+
+    /// The backticked state paths in this set's questions that `state` does not contain; see
+    /// the [`state`](crate::state) module.
+    fn check_paths(state: &Value) -> Vec<crate::state::PathIssue> {
+        crate::state::check(state, &Self::questions())
+    }
 }
 
 /// A question set whose answers select one variant of an enum and fill its fields: typed

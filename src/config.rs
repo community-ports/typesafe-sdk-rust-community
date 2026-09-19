@@ -31,6 +31,7 @@ pub(crate) struct Config {
     pub(crate) default_model: String,
     pub(crate) timeout: Duration,
     pub(crate) default_headers: HeaderMap,
+    pub(crate) check_paths: bool,
 }
 
 impl fmt::Debug for Config {
@@ -64,6 +65,7 @@ impl Config {
             default_model,
             timeout: validate_timeout(timeout.unwrap_or(DEFAULT_TIMEOUT))?,
             default_headers,
+            check_paths: false,
         })
     }
 }
