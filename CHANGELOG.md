@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-09-18
+## [0.1.0] - 2026-09-19
 
 Initial port of [typesafe-sdk-python](https://github.com/typesafe-ai/typesafe-sdk-python) 0.7.0.
 

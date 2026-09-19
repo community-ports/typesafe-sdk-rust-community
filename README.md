@@ -1,5 +1,10 @@
 # TypeSafe AI Rust SDK (community)
 
+[![crates.io](https://img.shields.io/crates/v/typesafeai-sdk-community.svg)](https://crates.io/crates/typesafeai-sdk-community)
+[![docs.rs](https://img.shields.io/docsrs/typesafeai-sdk-community)](https://docs.rs/typesafeai-sdk-community)
+[![CI](https://github.com/community-ports/typesafeai-sdk-rust-community/actions/workflows/ci.yml/badge.svg)](https://github.com/community-ports/typesafeai-sdk-rust-community/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A community-built Rust SDK for the [TypeSafe AI](https://typesafe.ai) API. It is a port of the
 official [Python SDK](https://github.com/typesafe-ai/typesafe-sdk-python) with the same
 primitives, wire format, retry behavior, and error semantics, in idiomatic Rust.
