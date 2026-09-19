@@ -16,15 +16,17 @@ generated text. Learn what TypeSafe is and how to design questions in the
 
 On top of the official surface, the community edition adds what the docs tell you to build
 yourself: derive macros that make Rust enums and structs the questions and answers
-([Typed questions](#typed-questions)), and helpers that turn probabilities into decisions
-([Decisions](#decisions)).
+([Typed questions](#typed-questions)), typed function calling ([Routing](#routing)), weighted
+scoring you can retune without new requests ([Composite scoring](#composite-scoring)), helpers
+that turn probabilities into decisions ([Decisions](#decisions)), and a mock transport with
+generated fixtures for tests ([Testing](#testing)).
 
 This repository is one Cargo workspace that publishes two crates:
 
 | Crate | What it is |
 | --- | --- |
 | [`typesafeai-sdk-community`](https://crates.io/crates/typesafeai-sdk-community) | The SDK: clients, questions, answers, retries, errors. The only crate you add. |
-| [`typesafeai-sdk-community-macros`](https://crates.io/crates/typesafeai-sdk-community-macros) | The `ChoiceLabels`, `ScoreLevels`, and `Questions` derive macros, in [`macros/`](macros). Proc macros must be their own crate; the SDK depends on it and re-exports the derives under the default `derive` feature. |
+| [`typesafeai-sdk-community-macros`](https://crates.io/crates/typesafeai-sdk-community-macros) | The `ChoiceLabels`, `ScoreLevels`, `Questions`, `Route`, and `Composite` derive macros, in [`macros/`](macros). Proc macros must be their own crate; the SDK depends on it and re-exports the derives under the default `derive` feature. |
 
 Both crates share one version and are released together.
 
@@ -167,6 +169,107 @@ match triage.team.gate(Gate::new(0.85, 0.6)) {
 Also available: `margin()` (gap between the top two labels), `top(n)`, `entropy()` and
 `normalized_entropy()` on choices; `probability_at_least(level)`, `std_dev()`, and
 `normalized()` on scores; `certainty()` on nouls.
+
+## Routing
+
+`#[derive(Route)]` is typed function calling. One choice question selects a variant; every
+variant's fields are questions too, sent in the same request (the docs' speculative fan-out).
+Only the winning variant is constructed:
+
+```rust
+use typesafeai_sdk_community::{NoulAnswer, Route, TypeSafeClient};
+
+#[derive(Debug, Route)]
+#[route("What does the customer want from `message`?")]
+enum Intent {
+    #[route(describe = "Wants money back for a charge")]
+    Refund {
+        #[noul("Is the full amount requested?")]
+        full_amount: bool,
+    },
+    #[route(describe = "Wants to cancel the subscription")]
+    Cancel {
+        #[noul("Is this a threat rather than a decision?")]
+        threat: NoulAnswer,
+    },
+    #[route(describe = "None of the above clearly applies")]
+    Other,
+}
+
+match client.route::<Intent>(state).send().await? {
+    Intent::Refund { full_amount } => refund(full_amount),
+    Intent::Cancel { threat } if threat.noul > 0.7 => retain(),
+    Intent::Cancel { .. } => cancel(),
+    Intent::Other => escalate(),
+}
+```
+
+`send_full()` returns a `Routed<Intent>` with the routing `ChoiceAnswer` (confidence, margin,
+every variant's probability) and the full response, so uncertain routes can be gated the same
+way as any choice. Enum attributes: `#[route("instructions", name = "route",
+rename_all = "snake_case")]`; variant attributes: `#[route(label = "...", describe = ...)]`.
+Branch questions are named `<label>.<field>` on the wire unless a field sets `name`.
+
+## Composite scoring
+
+`#[derive(Composite)]` implements the docs'
+[composite scoring](https://docs.typesafe.ai/patterns/composite-scoring) pattern: score each
+dimension once, combine with weights that live in code, and reweight or re-threshold without
+re-running inference.
+
+```rust
+use typesafeai_sdk_community::composite::{Composite as _, Weights};
+use typesafeai_sdk_community::{Composite, NoulAnswer, Questions, TypedScore};
+
+#[derive(Questions, Composite)]
+struct ChurnRisk {
+    #[noul("Does `message` express intent to leave?")]   #[weight(0.5)] leaving: NoulAnswer,
+    #[noul("Does `message` mention a competitor?")]      #[weight(0.2)] competitor: NoulAnswer,
+    #[score("How angry is the customer?")]               #[weight(0.3)] anger: TypedScore<Anger>,
+}
+
+let risk = client.ask::<ChurnRisk>(state).await?;
+let score = risk.composite();                                       // 0..1 with declared weights
+let score = risk.composite_with(&Weights::from([("leaving", 1.0)])); // from config, no new request
+for part in risk.breakdown() { /* name, signal, weight, contribution */ }
+```
+
+Signals are 0..1: a noul's probability, a score's expected value over its top level, `bool`,
+`f64` as-is, or one label's probability with `#[weight(0.2, label = Tone::Angry)]`; `invert`
+flips a signal. Missing `Option` signals are dropped and the rest renormalized. `Weights` is
+serde-serializable.
+
+## Testing
+
+Enable the `test-util` feature for a `MockTransport` that answers from scripted responses and
+records every request, so tests run the real client (retries, decoding, typed parsing) with no
+network:
+
+```rust
+use typesafeai_sdk_community::testing::{MockResponse, MockTransport};
+
+let mock = MockTransport::new();
+mock.enqueue(MockResponse::rate_limited(Duration::from_millis(10)))   // first attempt
+    .enqueue(MockResponse::answers().noul("billing", 0.92).choice_typed("tone", Tone::Angry));
+let client = mock.client();                                            // or builder().transport(mock.clone())
+
+let triage = client.ask::<Triage>("...").await?;
+assert_eq!(triage.tone.choice, Tone::Angry);
+assert_eq!(mock.requests().len(), 2);
+assert_eq!(mock.last_request().unwrap().model(), Some("jev-latest"));
+```
+
+Add `#[questions(mock)]` (or `mock` on `#[route(...)]`) and the derive also generates a typed
+fixture builder, so tests never spell out JSON:
+
+```rust
+mock.enqueue(Triage::mock().billing(0.92).tone(Tone::Angry).urgency(Urgency::High));
+mock.enqueue(Intent::mock().refund().refund_full_amount(1.0));
+```
+
+`Recorder` wraps any transport and captures exchanges into a `Cassette` (JSON, no credentials)
+that `MockTransport::replay` plays back, for tests that should track real API behavior without
+calling it every run. `Transport` is public, so the same seam takes your own HTTP stack.
 
 ## Questions
 
@@ -314,19 +417,20 @@ RUST_LOG=typesafeai_sdk_community=debug cargo run --example models
 
 | Feature | Default | Effect |
 | --- | --- | --- |
-| `derive` | yes | The `ChoiceLabels`, `ScoreLevels`, and `Questions` derive macros (pulls in `typesafeai-sdk-community-macros`) |
+| `derive` | yes | The `ChoiceLabels`, `ScoreLevels`, `Questions`, `Route`, and `Composite` derive macros (pulls in `typesafeai-sdk-community-macros`) |
 | `rustls` | yes | TLS via rustls with the platform certificate verifier |
 | `native-tls` | no | TLS via the operating system's TLS library |
 | `blocking` | no | The synchronous `blocking::TypeSafeClient` |
+| `test-util` | no | The `testing` module: `MockTransport`, scripted responses, fixture builders, record/replay |
 
 ## Development
 
 ```
 Cargo.toml        typesafeai-sdk-community (the SDK)
-src/              client, questions, responses, retry, errors, typed, decision
+src/              client, transport, questions, responses, retry, errors, typed, decision, composite, testing
 macros/           typesafeai-sdk-community-macros (the derive macros)
 tests/            offline tests against a scripted mock server; live.rs self-skips without a key
-examples/         basic, typed, models, blocking
+examples/         basic, typed, route, models, blocking
 ```
 
 Every command below runs across both crates:

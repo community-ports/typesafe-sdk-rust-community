@@ -6,6 +6,37 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-19
+
+Typed routing, composite scoring, and a testing story.
+
+### Added
+
+- `#[derive(Route)]`: an enum whose variants are selected by one choice question and whose
+  named fields are questions of their own, all sent in one request. `client.route::<T>(state)`
+  returns the variant; `send_full()` returns `Routed<T>` with the routing `ChoiceAnswer` and
+  the full response. Available on the blocking client.
+- `#[derive(Composite)]` and the `composite` module: `#[weight(w)]` fields (with `label = ...`,
+  `invert`, and `name = ...`) combine into `composite()`, `composite_with(&Weights)`, and
+  `breakdown()`. `Signal` and `LabelSignal` read answers as 0..1 values; `Weights` is
+  serializable.
+- The `test-util` feature and `testing` module: `MockTransport` with scripted `MockResponse`s
+  (answers, typed answers, errors, rate limits, timeouts, disconnects), request recording,
+  `mock.client()`, and `Recorder` / `Cassette` record-and-replay.
+- `#[questions(mock)]` and `#[route(..., mock)]` generate typed fixture builders
+  (`Triage::mock().tone(Tone::Angry).build()`).
+- The `transport` module is public: `Transport` / `BlockingTransport` traits, `HttpRequest`,
+  `HttpResponse`, and the default `ReqwestTransport`s. `ClientBuilder::transport` plugs in any
+  implementation.
+- `ChoiceOf` / `ScoreOf` helper traits and `Routed<T>`.
+
+### Changed
+
+- `TypeSafeClient::http_client()` now returns `Option<&reqwest::Client>` (a custom transport
+  has none); `transport()` returns the transport in use.
+- `ConnectionError::new` builds a connection error without a `reqwest` source, for custom
+  transports.
+
 ## [0.2.0] - 2026-09-19
 
 The community edition's first additions beyond the official SDK surface: typed questions and
@@ -56,6 +87,7 @@ Initial port of [typesafe-sdk-python](https://github.com/typesafe-ai/typesafe-sd
 - `X-TypeSafe-SDK`, `X-TypeSafe-Runtime` (runtime-detected OS and architecture), and
   `User-Agent` identification headers.
 
-[Unreleased]: https://github.com/community-ports/typesafeai-sdk-rust-community/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/community-ports/typesafeai-sdk-rust-community/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/community-ports/typesafeai-sdk-rust-community/releases/tag/v0.3.0
 [0.2.0]: https://github.com/community-ports/typesafeai-sdk-rust-community/releases/tag/v0.2.0
 [0.1.0]: https://github.com/community-ports/typesafeai-sdk-rust-community/releases/tag/v0.1.0

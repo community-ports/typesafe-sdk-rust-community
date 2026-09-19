@@ -108,6 +108,24 @@ impl Answer {
     }
 }
 
+impl From<NoulAnswer> for Answer {
+    fn from(answer: NoulAnswer) -> Self {
+        Answer::Noul(answer)
+    }
+}
+
+impl From<ChoiceAnswer> for Answer {
+    fn from(answer: ChoiceAnswer) -> Self {
+        Answer::Choice(answer)
+    }
+}
+
+impl From<ScoreAnswer> for Answer {
+    fn from(answer: ScoreAnswer) -> Self {
+        Answer::Score(answer)
+    }
+}
+
 /// Token counts for a request, when reported by the API.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Usage {

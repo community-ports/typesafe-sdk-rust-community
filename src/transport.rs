@@ -1,7 +1,13 @@
-//! Request preparation, response decoding, and the retrying send loop shared by the async and
-//! blocking clients.
+//! The HTTP layer: the [`Transport`] trait the clients send through, the default `reqwest`
+//! transports, and (internally) request preparation, response decoding, and the retry loop.
+//!
+//! Most users never touch this module. Implement [`Transport`] to send through your own HTTP
+//! stack or to observe requests; use the `testing` module (feature `test-util`) for scripted
+//! responses without a network.
 
 use std::collections::BTreeMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::time::{Duration, Instant};
 
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue, USER_AGENT};
@@ -66,15 +72,7 @@ impl PreparedRequest {
     }
 }
 
-/// The undecoded result of one HTTP attempt.
-#[derive(Clone, Debug)]
-pub(crate) struct RawHttp {
-    pub(crate) status: StatusCode,
-    pub(crate) headers: HeaderMap,
-    pub(crate) body: Vec<u8>,
-}
-
-impl RawHttp {
+impl HttpResponse {
     pub(crate) fn log_received(&self, request: &PreparedRequest, started: Instant) {
         tracing::info!(
             target: TARGET,
@@ -287,49 +285,150 @@ impl Decode for SystemOneResponse {
     }
 }
 
-// --- Async send loop --------------------------------------------------------------------------
+// --- Transport abstraction ----------------------------------------------------------------------
 
-async fn attempt_async(http: &reqwest::Client, request: &PreparedRequest, attempts: u32) -> Result<RawHttp> {
-    let headers = request.attempt_headers(attempts);
-    let started = Instant::now();
-    let mut builder = http.request(request.method.clone(), &request.url).headers(headers).timeout(request.timeout);
-    if let Some(body) = &request.body {
-        builder = builder.body(body.clone());
-    }
-    let response = builder.send().await.map_err(|error| {
-        tracing::info!(target: TARGET, "{} {} <- {}", request.method, request.url, error_kind(&error));
-        map_reqwest_error(error, request.timeout)
-    })?;
-    let status = response.status();
-    let headers = response.headers().clone();
-    let body = response.bytes().await.map_err(|error| map_reqwest_error(error, request.timeout))?.to_vec();
-    let raw = RawHttp { status, headers, body };
-    raw.log_received(request, started);
-    Ok(raw)
+/// One HTTP attempt as handed to a [`Transport`]: the prepared request with this attempt's
+/// headers already applied.
+#[derive(Clone, Debug)]
+pub struct HttpRequest {
+    /// The HTTP method.
+    pub method: Method,
+    /// The absolute URL.
+    pub url: String,
+    /// All headers for this attempt, including authentication.
+    pub headers: HeaderMap,
+    /// The JSON body, if any.
+    pub body: Option<Vec<u8>>,
+    /// The timeout for the whole attempt.
+    pub timeout: Duration,
 }
 
-pub(crate) async fn send<T: Decode>(
-    http: &reqwest::Client,
-    request: PreparedRequest,
-    policy: &RetryPolicy,
-) -> Result<T> {
-    let started = Instant::now();
-    let mut attempts = 0u32;
-    loop {
-        let result = match attempt_async(http, &request, attempts).await {
-            Ok(raw) => T::decode(&request, raw),
-            Err(error) => Err(error),
-        };
-        match result {
-            Ok(value) => return Ok(value),
-            Err(error) => {
-                attempts += 1;
-                match policy.next_delay(attempts, started, &error) {
-                    Some(delay) => tokio::time::sleep(delay).await,
-                    None => return Err(error),
-                }
-            }
+/// The undecoded result of one HTTP attempt.
+#[derive(Clone, Debug)]
+pub struct HttpResponse {
+    /// The HTTP status.
+    pub status: StatusCode,
+    /// The response headers.
+    pub headers: HeaderMap,
+    /// The raw body.
+    pub body: Vec<u8>,
+}
+
+pub(crate) type RawHttp = HttpResponse;
+
+/// Sends one HTTP attempt for the asynchronous client.
+///
+/// The SDK's default transport is `reqwest`. Implement this to route requests through your own
+/// stack, record them, or answer them without a network (see the `testing` module under the
+/// `test-util` feature). Retries, logging, and decoding stay in the SDK: a transport returns the
+/// response it got, or an [`Error::Timeout`] / [`Error::Connection`] when it got none.
+pub trait Transport: Send + Sync + 'static {
+    /// Send one attempt.
+    fn send(&self, request: HttpRequest) -> Pin<Box<dyn Future<Output = Result<HttpResponse>> + Send + '_>>;
+
+    /// The `reqwest::Client` behind this transport, if it is the default one.
+    fn reqwest_client(&self) -> Option<&reqwest::Client> {
+        None
+    }
+}
+
+/// Sends one HTTP attempt for the blocking client.
+#[cfg(feature = "blocking")]
+pub trait BlockingTransport: Send + Sync + 'static {
+    /// Send one attempt.
+    fn send(&self, request: HttpRequest) -> Result<HttpResponse>;
+
+    /// The `reqwest::blocking::Client` behind this transport, if it is the default one.
+    fn reqwest_client(&self) -> Option<&reqwest::blocking::Client> {
+        None
+    }
+}
+
+impl PreparedRequest {
+    fn attempt(&self, attempts: u32) -> HttpRequest {
+        HttpRequest {
+            method: self.method.clone(),
+            url: self.url.clone(),
+            headers: self.attempt_headers(attempts),
+            body: self.body.clone(),
+            timeout: self.timeout,
         }
+    }
+}
+
+/// The default transport: a `reqwest::Client`.
+pub struct ReqwestTransport {
+    client: reqwest::Client,
+}
+
+impl ReqwestTransport {
+    /// Wrap an existing client.
+    pub fn new(client: reqwest::Client) -> Self {
+        ReqwestTransport { client }
+    }
+}
+
+impl Transport for ReqwestTransport {
+    fn send(&self, request: HttpRequest) -> Pin<Box<dyn Future<Output = Result<HttpResponse>> + Send + '_>> {
+        Box::pin(async move {
+            let mut builder = self
+                .client
+                .request(request.method.clone(), &request.url)
+                .headers(request.headers)
+                .timeout(request.timeout);
+            if let Some(body) = request.body {
+                builder = builder.body(body);
+            }
+            let response = builder.send().await.map_err(|error| {
+                tracing::info!(target: TARGET, "{} {} <- {}", request.method, request.url, error_kind(&error));
+                map_reqwest_error(error, request.timeout)
+            })?;
+            let status = response.status();
+            let headers = response.headers().clone();
+            let body = response.bytes().await.map_err(|error| map_reqwest_error(error, request.timeout))?.to_vec();
+            Ok(HttpResponse { status, headers, body })
+        })
+    }
+
+    fn reqwest_client(&self) -> Option<&reqwest::Client> {
+        Some(&self.client)
+    }
+}
+
+/// The default blocking transport: a `reqwest::blocking::Client`.
+#[cfg(feature = "blocking")]
+pub struct ReqwestBlockingTransport {
+    client: reqwest::blocking::Client,
+}
+
+#[cfg(feature = "blocking")]
+impl ReqwestBlockingTransport {
+    /// Wrap an existing client.
+    pub fn new(client: reqwest::blocking::Client) -> Self {
+        ReqwestBlockingTransport { client }
+    }
+}
+
+#[cfg(feature = "blocking")]
+impl BlockingTransport for ReqwestBlockingTransport {
+    fn send(&self, request: HttpRequest) -> Result<HttpResponse> {
+        let mut builder =
+            self.client.request(request.method.clone(), &request.url).headers(request.headers).timeout(request.timeout);
+        if let Some(body) = request.body {
+            builder = builder.body(body);
+        }
+        let response = builder.send().map_err(|error| {
+            tracing::info!(target: TARGET, "{} {} <- {}", request.method, request.url, error_kind(&error));
+            map_reqwest_error(error, request.timeout)
+        })?;
+        let status = response.status();
+        let headers = response.headers().clone();
+        let body = response.bytes().map_err(|error| map_reqwest_error(error, request.timeout))?.to_vec();
+        Ok(HttpResponse { status, headers, body })
+    }
+
+    fn reqwest_client(&self) -> Option<&reqwest::blocking::Client> {
+        Some(&self.client)
     }
 }
 
@@ -347,39 +446,52 @@ pub(crate) fn error_kind(error: &reqwest::Error) -> &'static str {
     }
 }
 
-// --- Blocking send loop -----------------------------------------------------------------------
+// --- Send loops ---------------------------------------------------------------------------------
 
-#[cfg(feature = "blocking")]
-fn attempt_blocking(http: &reqwest::blocking::Client, request: &PreparedRequest, attempts: u32) -> Result<RawHttp> {
-    let headers = request.attempt_headers(attempts);
-    let started = Instant::now();
-    let mut builder = http.request(request.method.clone(), &request.url).headers(headers).timeout(request.timeout);
-    if let Some(body) = &request.body {
-        builder = builder.body(body.clone());
-    }
-    let response = builder.send().map_err(|error| {
-        tracing::info!(target: TARGET, "{} {} <- {}", request.method, request.url, error_kind(&error));
-        map_reqwest_error(error, request.timeout)
-    })?;
-    let status = response.status();
-    let headers = response.headers().clone();
-    let body = response.bytes().map_err(|error| map_reqwest_error(error, request.timeout))?.to_vec();
-    let raw = RawHttp { status, headers, body };
-    raw.log_received(request, started);
-    Ok(raw)
-}
-
-#[cfg(feature = "blocking")]
-pub(crate) fn send_blocking<T: Decode>(
-    http: &reqwest::blocking::Client,
+pub(crate) async fn send<T: Decode>(
+    transport: &dyn Transport,
     request: PreparedRequest,
     policy: &RetryPolicy,
 ) -> Result<T> {
     let started = Instant::now();
     let mut attempts = 0u32;
     loop {
-        let result = match attempt_blocking(http, &request, attempts) {
-            Ok(raw) => T::decode(&request, raw),
+        let attempt_started = Instant::now();
+        let result = match transport.send(request.attempt(attempts)).await {
+            Ok(raw) => {
+                raw.log_received(&request, attempt_started);
+                T::decode(&request, raw)
+            }
+            Err(error) => Err(error),
+        };
+        match result {
+            Ok(value) => return Ok(value),
+            Err(error) => {
+                attempts += 1;
+                match policy.next_delay(attempts, started, &error) {
+                    Some(delay) => tokio::time::sleep(delay).await,
+                    None => return Err(error),
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "blocking")]
+pub(crate) fn send_blocking<T: Decode>(
+    transport: &dyn BlockingTransport,
+    request: PreparedRequest,
+    policy: &RetryPolicy,
+) -> Result<T> {
+    let started = Instant::now();
+    let mut attempts = 0u32;
+    loop {
+        let attempt_started = Instant::now();
+        let result = match transport.send(request.attempt(attempts)) {
+            Ok(raw) => {
+                raw.log_received(&request, attempt_started);
+                T::decode(&request, raw)
+            }
             Err(error) => Err(error),
         };
         match result {

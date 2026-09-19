@@ -18,8 +18,8 @@ use crate::error::{Error, Result};
 use crate::question::{Question, validate_questions};
 use crate::response::{ListModelsResponse, RawResponse, SystemOneResponse};
 use crate::retry::RetryPolicy;
-use crate::transport::{Custom, PreparedRequest, prepare, send};
-use crate::typed::{Answered, Questions};
+use crate::transport::{Custom, PreparedRequest, ReqwestTransport, Transport, prepare, send};
+use crate::typed::{Answered, Questions, Route, Routed};
 
 // --- Shared option handling -------------------------------------------------------------------
 
@@ -132,7 +132,7 @@ pub(crate) use client_builder_options;
 struct Inner {
     config: Config,
     retry: RetryPolicy,
-    http: reqwest::Client,
+    transport: Arc<dyn Transport>,
 }
 
 /// An asynchronous HTTP client for the [TypeSafe AI API](https://typesafe.ai).
@@ -212,6 +212,34 @@ impl TypeSafeClient {
         AskRequest { inner: self.system_one(state).questions(T::questions()), _answers: std::marker::PhantomData }
     }
 
+    /// Route to one variant of a [`Route`] enum and fill its fields, in one request. See the
+    /// [`typed`](crate::typed) module.
+    ///
+    /// ```no_run
+    /// # use typesafeai_sdk_community::{Route, TypeSafeClient};
+    /// #[derive(Debug, Route)]
+    /// #[route("What does the customer want?")]
+    /// enum Intent {
+    ///     #[route(describe = "Wants money back")]
+    ///     Refund {
+    ///         #[noul("Is the full amount requested?")]
+    ///         full_amount: bool,
+    ///     },
+    ///     #[route(describe = "Nothing above applies")]
+    ///     Other,
+    /// }
+    /// # async fn run(client: TypeSafeClient) -> typesafeai_sdk_community::Result<()> {
+    /// match client.route::<Intent>("I want all my money back").send().await? {
+    ///     Intent::Refund { full_amount } => println!("refund, full={full_amount}"),
+    ///     Intent::Other => println!("something else"),
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn route<T: Route>(&self, state: impl Into<Value>) -> RouteRequest<'_, Self, T> {
+        RouteRequest { inner: self.ask::<T>(state) }
+    }
+
     /// Access the Models API resource.
     pub fn models(&self) -> Models<'_, Self> {
         Models { client: self }
@@ -227,9 +255,14 @@ impl TypeSafeClient {
         &self.inner.config.base_url
     }
 
-    /// The underlying `reqwest` client.
-    pub fn http_client(&self) -> &reqwest::Client {
-        &self.inner.http
+    /// The underlying `reqwest` client, unless a custom transport was supplied.
+    pub fn http_client(&self) -> Option<&reqwest::Client> {
+        self.inner.transport.reqwest_client()
+    }
+
+    /// The transport requests are sent through.
+    pub fn transport(&self) -> &dyn Transport {
+        self.inner.transport.as_ref()
     }
 
     async fn dispatch<T: crate::transport::Decode>(
@@ -244,7 +277,7 @@ impl TypeSafeClient {
             }
             None => &self.inner.retry,
         };
-        send(&self.inner.http, request, policy).await
+        send(self.inner.transport.as_ref(), request, policy).await
     }
 }
 
@@ -256,6 +289,7 @@ impl TypeSafeClient {
 pub struct ClientBuilder {
     options: ClientOptions,
     http_client: Option<reqwest::Client>,
+    transport: Option<Arc<dyn Transport>>,
 }
 
 impl ClientBuilder {
@@ -268,6 +302,19 @@ impl ClientBuilder {
         self
     }
 
+    /// A custom [`Transport`] to send through instead of `reqwest`: your own HTTP stack, a
+    /// recorder, or a mock (see the `testing` module). Takes precedence over `http_client`.
+    pub fn transport(mut self, transport: impl Transport) -> Self {
+        self.transport = Some(Arc::new(transport));
+        self
+    }
+
+    /// A shared custom [`Transport`]; see [`transport`](Self::transport).
+    pub fn transport_arc(mut self, transport: Arc<dyn Transport>) -> Self {
+        self.transport = Some(transport);
+        self
+    }
+
     /// Build the client.
     ///
     /// # Errors
@@ -276,14 +323,17 @@ impl ClientBuilder {
     /// header is invalid, or the HTTP client cannot be initialized.
     pub fn build(self) -> Result<TypeSafeClient> {
         let (config, retry) = self.options.resolve()?;
-        let http = match self.http_client {
-            Some(http) => http,
-            None => reqwest::Client::builder()
-                .timeout(config.timeout)
-                .build()
-                .map_err(|error| Error::Config(format!("Could not initialize the HTTP client: {error}")))?,
+        let transport: Arc<dyn Transport> = match (self.transport, self.http_client) {
+            (Some(transport), _) => transport,
+            (None, Some(http)) => Arc::new(ReqwestTransport::new(http)),
+            (None, None) => Arc::new(ReqwestTransport::new(
+                reqwest::Client::builder()
+                    .timeout(config.timeout)
+                    .build()
+                    .map_err(|error| Error::Config(format!("Could not initialize the HTTP client: {error}")))?,
+            )),
         };
-        Ok(TypeSafeClient { inner: Arc::new(Inner { config, retry, http }) })
+        Ok(TypeSafeClient { inner: Arc::new(Inner { config, retry, transport }) })
     }
 }
 
@@ -517,6 +567,86 @@ impl<'a, T: Questions> AskRequest<'a, TypeSafeClient, T> {
 }
 
 impl<'a, T: Questions + 'a> IntoFuture for AskRequest<'a, TypeSafeClient, T> {
+    type Output = Result<T>;
+    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(self.send())
+    }
+}
+
+// --- Typed routing request ----------------------------------------------------------------------
+
+/// A [`Route`] request under construction; see [`TypeSafeClient::route`]. Accepts the same
+/// per-call options as [`AskRequest`].
+#[must_use = "a request does nothing until it is sent"]
+pub struct RouteRequest<'a, C, T> {
+    pub(crate) inner: AskRequest<'a, C, T>,
+}
+
+impl<'a, C, T: Route> RouteRequest<'a, C, T> {
+    /// Add an ad-hoc question alongside the routing set.
+    pub fn question(mut self, name: impl Into<String>, question: impl Into<Question>) -> Self {
+        self.inner = self.inner.question(name, question);
+        self
+    }
+
+    /// Model override for this call.
+    pub fn model(mut self, model: impl Into<String>) -> Self {
+        self.inner = self.inner.model(model);
+        self
+    }
+
+    /// A retry policy for this call only.
+    pub fn retry(mut self, retry: RetryPolicy) -> Self {
+        self.inner = self.inner.retry(retry);
+        self
+    }
+
+    /// An HTTP timeout for this call only.
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.inner = self.inner.timeout(timeout);
+        self
+    }
+
+    /// An additional request header for this call.
+    pub fn header<N, V>(mut self, name: N, value: V) -> Self
+    where
+        N: TryInto<HeaderName>,
+        N::Error: fmt::Display,
+        V: TryInto<HeaderValue>,
+        V::Error: fmt::Display,
+    {
+        self.inner = self.inner.header(name, value);
+        self
+    }
+
+    /// An additional top-level request-body field; see [`SystemOneRequest::extra_body`].
+    pub fn extra_body(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
+        self.inner = self.inner.extra_body(key, value);
+        self
+    }
+
+    /// The underlying typed request.
+    pub fn into_inner(self) -> AskRequest<'a, C, T> {
+        self.inner
+    }
+}
+
+impl<'a, T: Route> RouteRequest<'a, TypeSafeClient, T> {
+    /// Send the request and return the selected variant.
+    pub async fn send(self) -> Result<T> {
+        Ok(self.send_full().await?.route)
+    }
+
+    /// Send the request and return the variant with the routing choice and full response.
+    pub async fn send_full(self) -> Result<Routed<T>> {
+        let response = self.inner.inner.send().await?;
+        Ok(Routed::from_response(response)?)
+    }
+}
+
+impl<'a, T: Route + 'a> IntoFuture for RouteRequest<'a, TypeSafeClient, T> {
     type Output = Result<T>;
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
 

@@ -28,20 +28,20 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::client::{
-    AskRequest, ClientOptions, ListModelsRequest, Models, SystemOneParams, SystemOneRequest, client_builder_options,
-    insert_header,
+    AskRequest, ClientOptions, ListModelsRequest, Models, RouteRequest, SystemOneParams, SystemOneRequest,
+    client_builder_options, insert_header,
 };
 use crate::config::Config;
 use crate::error::{Error, Result};
 use crate::response::{ListModelsResponse, RawResponse, SystemOneResponse};
 use crate::retry::RetryPolicy;
-use crate::transport::{Custom, Decode, PreparedRequest, send_blocking};
-use crate::typed::{Answered, Questions};
+use crate::transport::{BlockingTransport, Custom, Decode, PreparedRequest, ReqwestBlockingTransport, send_blocking};
+use crate::typed::{Answered, Questions, Route, Routed};
 
 struct Inner {
     config: Config,
     retry: RetryPolicy,
-    http: reqwest::blocking::Client,
+    transport: Arc<dyn BlockingTransport>,
 }
 
 /// A synchronous HTTP client for the [TypeSafe AI API](https://typesafe.ai).
@@ -87,6 +87,12 @@ impl TypeSafeClient {
         AskRequest { inner: self.system_one(state).questions(T::questions()), _answers: std::marker::PhantomData }
     }
 
+    /// Route to one variant of a [`Route`] enum; see
+    /// [`TypeSafeClient::route`](crate::TypeSafeClient::route).
+    pub fn route<T: Route>(&self, state: impl Into<Value>) -> RouteRequest<'_, Self, T> {
+        RouteRequest { inner: self.ask::<T>(state) }
+    }
+
     /// Access the Models API resource.
     pub fn models(&self) -> Models<'_, Self> {
         Models { client: self }
@@ -102,9 +108,14 @@ impl TypeSafeClient {
         &self.inner.config.base_url
     }
 
-    /// The underlying `reqwest` client.
-    pub fn http_client(&self) -> &reqwest::blocking::Client {
-        &self.inner.http
+    /// The underlying `reqwest` client, unless a custom transport was supplied.
+    pub fn http_client(&self) -> Option<&reqwest::blocking::Client> {
+        self.inner.transport.reqwest_client()
+    }
+
+    /// The transport requests are sent through.
+    pub fn transport(&self) -> &dyn BlockingTransport {
+        self.inner.transport.as_ref()
     }
 
     fn dispatch<T: Decode>(&self, request: PreparedRequest, retry: Option<&RetryPolicy>) -> Result<T> {
@@ -115,7 +126,7 @@ impl TypeSafeClient {
             }
             None => &self.inner.retry,
         };
-        send_blocking(&self.inner.http, request, policy)
+        send_blocking(self.inner.transport.as_ref(), request, policy)
     }
 }
 
@@ -127,6 +138,7 @@ impl TypeSafeClient {
 pub struct ClientBuilder {
     options: ClientOptions,
     http_client: Option<reqwest::blocking::Client>,
+    transport: Option<Arc<dyn BlockingTransport>>,
 }
 
 impl ClientBuilder {
@@ -139,6 +151,19 @@ impl ClientBuilder {
         self
     }
 
+    /// A custom [`BlockingTransport`] to send through instead of `reqwest`. Takes precedence
+    /// over `http_client`.
+    pub fn transport(mut self, transport: impl BlockingTransport) -> Self {
+        self.transport = Some(Arc::new(transport));
+        self
+    }
+
+    /// A shared custom [`BlockingTransport`]; see [`transport`](Self::transport).
+    pub fn transport_arc(mut self, transport: Arc<dyn BlockingTransport>) -> Self {
+        self.transport = Some(transport);
+        self
+    }
+
     /// Build the client.
     ///
     /// # Errors
@@ -147,14 +172,17 @@ impl ClientBuilder {
     /// header is invalid, or the HTTP client cannot be initialized.
     pub fn build(self) -> Result<TypeSafeClient> {
         let (config, retry) = self.options.resolve()?;
-        let http = match self.http_client {
-            Some(http) => http,
-            None => reqwest::blocking::Client::builder()
-                .timeout(config.timeout)
-                .build()
-                .map_err(|error| Error::Config(format!("Could not initialize the HTTP client: {error}")))?,
+        let transport: Arc<dyn BlockingTransport> = match (self.transport, self.http_client) {
+            (Some(transport), _) => transport,
+            (None, Some(http)) => Arc::new(ReqwestBlockingTransport::new(http)),
+            (None, None) => Arc::new(ReqwestBlockingTransport::new(
+                reqwest::blocking::Client::builder()
+                    .timeout(config.timeout)
+                    .build()
+                    .map_err(|error| Error::Config(format!("Could not initialize the HTTP client: {error}")))?,
+            )),
         };
-        Ok(TypeSafeClient { inner: Arc::new(Inner { config, retry, http }) })
+        Ok(TypeSafeClient { inner: Arc::new(Inner { config, retry, transport }) })
     }
 }
 
@@ -190,6 +218,19 @@ impl<T: Questions> AskRequest<'_, TypeSafeClient, T> {
         let response = self.inner.send()?;
         let answers = T::from_response(&response)?;
         Ok(Answered { answers, response })
+    }
+}
+
+impl<T: Route> RouteRequest<'_, TypeSafeClient, T> {
+    /// Send the request and return the selected variant.
+    pub fn send(self) -> Result<T> {
+        Ok(self.send_full()?.route)
+    }
+
+    /// Send the request and return the variant with the routing choice and full response.
+    pub fn send_full(self) -> Result<Routed<T>> {
+        let response = self.inner.inner.send()?;
+        Ok(Routed::from_response(response)?)
     }
 }
 

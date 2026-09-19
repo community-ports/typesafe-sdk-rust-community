@@ -412,6 +412,16 @@ impl ConnectionError {
         ConnectionError { message, source: Some(error) }
     }
 
+    /// A connection error with no underlying transport error, for custom transports.
+    pub fn new(message: impl Into<String>) -> Self {
+        ConnectionError { message: message.into(), source: None }
+    }
+
+    #[cfg(feature = "test-util")]
+    pub(crate) fn mock(message: &str) -> Self {
+        Self::new(message)
+    }
+
     /// The underlying transport error, when available.
     pub fn source_error(&self) -> Option<&reqwest::Error> {
         self.source.as_ref()

@@ -436,6 +436,91 @@ pub trait Questions: Sized {
     fn from_response(response: &SystemOneResponse) -> Result<Self, AnswerError>;
 }
 
+/// A question set whose answers select one variant of an enum and fill its fields: typed
+/// routing, or function calling.
+///
+/// Implement with `#[derive(Route)]` on an enum. One request carries the routing choice plus
+/// every variant's field questions (the docs' speculative fan-out); only the selected variant is
+/// constructed. Send it with `client.route::<T>(state)`.
+pub trait Route: Questions {
+    /// The wire name of the routing choice question.
+    const ROUTE_NAME: &'static str;
+
+    /// Every variant's label, in declaration order.
+    const LABELS: &'static [&'static str];
+
+    /// The label of the variant this value is.
+    fn label(&self) -> &'static str;
+}
+
+/// A routed value together with the routing choice and the full response.
+#[derive(Clone, Debug)]
+pub struct Routed<T> {
+    /// The selected variant with its fields filled.
+    pub route: T,
+    /// The routing choice: confidence and the probability of every variant.
+    pub choice: ChoiceAnswer,
+    /// The full response, including every speculative branch's answers.
+    pub response: SystemOneResponse,
+}
+
+impl<T> std::ops::Deref for Routed<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.route
+    }
+}
+
+impl<T: Route> Routed<T> {
+    /// Build from a response: parse the enum and pull out its routing choice.
+    pub fn from_response(response: SystemOneResponse) -> Result<Self, AnswerError> {
+        let route = T::from_response(&response)?;
+        let choice = ChoiceAnswer::from_answer(T::ROUTE_NAME, response.answer(T::ROUTE_NAME))?;
+        Ok(Routed { route, choice, response })
+    }
+
+    /// The probability the model assigned to a variant label, or 0 if absent.
+    pub fn probability(&self, label: &str) -> f64 {
+        self.choice.probability(label)
+    }
+
+    /// The gap between the selected variant and the runner-up, from 0 to 1.
+    pub fn margin(&self) -> f64 {
+        self.choice.margin()
+    }
+
+    /// Split into the route and the response.
+    pub fn into_parts(self) -> (T, SystemOneResponse) {
+        (self.route, self.response)
+    }
+}
+
+/// The [`ChoiceLabels`] enum behind a choice-shaped field type, used by generated fixture
+/// builders.
+pub trait ChoiceOf {
+    /// The labels enum.
+    type Labels: ChoiceLabels;
+}
+impl<T: ChoiceLabels> ChoiceOf for TypedChoice<T> {
+    type Labels = T;
+}
+impl<T: ChoiceOf> ChoiceOf for Option<T> {
+    type Labels = T::Labels;
+}
+
+/// The [`ScoreLevels`] enum behind a score-shaped field type, used by generated fixture
+/// builders.
+pub trait ScoreOf {
+    /// The levels enum.
+    type Levels: ScoreLevels;
+}
+impl<T: ScoreLevels> ScoreOf for TypedScore<T> {
+    type Levels = T;
+}
+impl<T: ScoreOf> ScoreOf for Option<T> {
+    type Levels = T::Levels;
+}
+
 /// A parsed question set together with the response it came from.
 #[derive(Clone, Debug)]
 pub struct Answered<T> {

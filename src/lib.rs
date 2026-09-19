@@ -43,7 +43,9 @@
 //! # Typed questions
 //!
 //! Enums can be choice labels and score rubrics, and a struct can be a whole question set; see
-//! the [`typed`] module. The [`decision`] module turns probabilities into decisions.
+//! the [`typed`] module. [`Route`] adds typed routing (function calling), [`Composite`] weighted
+//! scoring (the [`composite`] module), and the [`decision`] module turns probabilities into
+//! decisions. The `testing` module (feature `test-util`) mocks all of it without a network.
 //!
 //! ```no_run
 //! use typesafeai_sdk_community::{ChoiceLabels, NoulAnswer, Questions, TypeSafeClient, TypedChoice};
@@ -71,10 +73,13 @@
 //!
 //! # Feature flags
 //!
-//! - `derive` *(default)*: the `ChoiceLabels`, `ScoreLevels`, and `Questions` derive macros.
+//! - `derive` *(default)*: the `ChoiceLabels`, `ScoreLevels`, `Questions`, `Route`, and `Composite`
+//!   derive macros.
 //! - `rustls` *(default)*: TLS via rustls with the platform certificate verifier.
 //! - `native-tls`: TLS via the operating system's TLS library.
 //! - `blocking`: the synchronous [`blocking::TypeSafeClient`].
+//! - `test-util`: the [`testing`] module with a scripted [`testing::MockTransport`] and
+//!   record/replay cassettes.
 //!
 //! # Configuration
 //!
@@ -97,6 +102,7 @@
 #![warn(missing_docs, rust_2018_idioms, unreachable_pub)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+pub mod composite;
 pub mod constants;
 pub mod decision;
 pub mod typed;
@@ -108,13 +114,19 @@ mod logging;
 mod question;
 mod response;
 mod retry;
-mod transport;
+pub mod transport;
 
 #[cfg(feature = "blocking")]
 #[cfg_attr(docsrs, doc(cfg(feature = "blocking")))]
 pub mod blocking;
 
-pub use client::{AskRequest, ClientBuilder, ListModelsRequest, Models, SystemOneRequest, TypeSafeClient};
+#[cfg(feature = "test-util")]
+#[cfg_attr(docsrs, doc(cfg(feature = "test-util")))]
+pub mod testing;
+
+pub use client::{
+    AskRequest, ClientBuilder, ListModelsRequest, Models, RouteRequest, SystemOneRequest, TypeSafeClient,
+};
 pub use error::{
     AnswerError, ApiError, ApiErrorKind, ConnectionError, Error, ResponseBody, ResponseValidationError, Result,
     TimeoutError,
@@ -125,13 +137,13 @@ pub use response::{
     SystemOneResponse, Usage,
 };
 pub use retry::{RetryPolicy, RetryPredicate};
-pub use typed::{Answered, TypedChoice, TypedScore};
+pub use typed::{Answered, Routed, TypedChoice, TypedScore};
 
 /// Derive macros: `#[derive(ChoiceLabels)]`, `#[derive(ScoreLevels)]`, `#[derive(Questions)]`.
 /// See the [`typed`] module for the attribute reference.
 #[cfg(feature = "derive")]
 #[cfg_attr(docsrs, doc(cfg(feature = "derive")))]
-pub use typesafeai_sdk_community_macros::{ChoiceLabels, Questions, ScoreLevels};
+pub use typesafeai_sdk_community_macros::{ChoiceLabels, Composite, Questions, Route, ScoreLevels};
 
 /// Re-exported for building structured `state`, `instructions`, and `criteria` values.
 pub use serde_json::{Map, Value, json};
