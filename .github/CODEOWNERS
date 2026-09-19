@@ -1,3 +1,2 @@
-# Every change requires review from the maintainer. Update this when the repo
-# moves to the community-ports organization (e.g. a @community-ports/rust team).
-* @JSBtechnologies
+# Every change requires review from the maintainers team.
+* @community-ports/maintainers
