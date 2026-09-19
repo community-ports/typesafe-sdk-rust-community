@@ -6,6 +6,31 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-19
+
+The community edition's first additions beyond the official SDK surface: typed questions and
+answers, and decision helpers.
+
+### Added
+
+- `#[derive(ChoiceLabels)]` and `#[derive(ScoreLevels)]` make a unit enum the labels of a
+  choice question or the rubric of a score question, with `rename_all`, `label`, and
+  `describe` attributes. `Choice::of::<T>` and `Score::of::<T>` build questions from them.
+- `#[derive(Questions)]` makes a struct a whole question set: every field is one question and
+  the struct is filled from the response. Field types pick the shape (`NoulAnswer`, `bool`,
+  `f64`, `ChoiceAnswer`, `TypedChoice<T>`, `T`, `ScoreAnswer`, `TypedScore<T>`, `Answer`, or
+  `Option` of any); a mismatched question kind is a compile error.
+- `client.ask::<T>(state)` on both clients sends a question set in one request and returns
+  `T`, or `Answered<T>` with the full response via `send_full()`.
+- `TypedChoice<T>` and `TypedScore<T>` with typed probabilities, `probability`, `top`,
+  `margin`, `probability_at_least`/`at_most`, `normalized`, and `gate`.
+- `SystemOneResponse::parse::<T>()`, `choice_as::<T>()`, `score_as::<T>()`, and `get::<T>()`.
+- The `decision` module: `Bands`/`Decision` for three-way noul decisions, `Gate`/`Outcome` for
+  accept/review/reject on confidence, and `margin`, `top`, `entropy`, `normalized_entropy`,
+  `probability_at_least`, `std_dev`, `normalized`, and `certainty` on the answer types.
+- `Error::Answer(AnswerError)` for missing, mismatched, or unknown-label answers.
+- The `derive` feature (on by default) and the `typesafeai-sdk-community-macros` crate.
+
 ## [0.1.0] - 2026-09-19
 
 Initial port of [typesafe-sdk-python](https://github.com/typesafe-ai/typesafe-sdk-python) 0.7.0.
@@ -31,5 +56,6 @@ Initial port of [typesafe-sdk-python](https://github.com/typesafe-ai/typesafe-sd
 - `X-TypeSafe-SDK`, `X-TypeSafe-Runtime` (runtime-detected OS and architecture), and
   `User-Agent` identification headers.
 
-[Unreleased]: https://github.com/community-ports/typesafeai-sdk-rust-community/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/community-ports/typesafeai-sdk-rust-community/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/community-ports/typesafeai-sdk-rust-community/releases/tag/v0.2.0
 [0.1.0]: https://github.com/community-ports/typesafeai-sdk-rust-community/releases/tag/v0.1.0

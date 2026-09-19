@@ -19,6 +19,7 @@ use crate::question::{Question, validate_questions};
 use crate::response::{ListModelsResponse, RawResponse, SystemOneResponse};
 use crate::retry::RetryPolicy;
 use crate::transport::{Custom, PreparedRequest, prepare, send};
+use crate::typed::{Answered, Questions};
 
 // --- Shared option handling -------------------------------------------------------------------
 
@@ -189,6 +190,26 @@ impl TypeSafeClient {
     /// [state](https://docs.typesafe.ai/concepts/state) for details.
     pub fn system_one(&self, state: impl Into<Value>) -> SystemOneRequest<'_, Self> {
         SystemOneRequest { client: self, params: SystemOneParams::new(state.into()) }
+    }
+
+    /// Ask a typed question set: every field of `T` is sent as one request and the answers come
+    /// back as a `T`. See the [`typed`](crate::typed) module.
+    ///
+    /// ```no_run
+    /// # use typesafeai_sdk_community::{NoulAnswer, Questions, TypeSafeClient};
+    /// #[derive(Questions)]
+    /// struct Check {
+    ///     #[noul("Is this message spam?")]
+    ///     spam: NoulAnswer,
+    /// }
+    /// # async fn run(client: TypeSafeClient) -> typesafeai_sdk_community::Result<()> {
+    /// let check = client.ask::<Check>("Buy now!!!").send().await?;
+    /// println!("{:.2}", check.spam.noul);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn ask<T: Questions>(&self, state: impl Into<Value>) -> AskRequest<'_, Self, T> {
+        AskRequest { inner: self.system_one(state).questions(T::questions()), _answers: std::marker::PhantomData }
     }
 
     /// Access the Models API resource.
@@ -407,6 +428,96 @@ impl<'a> SystemOneRequest<'a, TypeSafeClient> {
 
 impl<'a> IntoFuture for SystemOneRequest<'a, TypeSafeClient> {
     type Output = Result<SystemOneResponse>;
+    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(self.send())
+    }
+}
+
+// --- Typed question-set request -----------------------------------------------------------------
+
+/// A [`Questions`] request under construction; see [`TypeSafeClient::ask`].
+///
+/// Accepts the same per-call options as [`SystemOneRequest`], plus extra ad-hoc questions with
+/// [`question`](Self::question) that end up in the full response but not in `T`.
+#[must_use = "a request does nothing until it is sent"]
+pub struct AskRequest<'a, C, T> {
+    pub(crate) inner: SystemOneRequest<'a, C>,
+    pub(crate) _answers: std::marker::PhantomData<fn() -> T>,
+}
+
+impl<'a, C, T: Questions> AskRequest<'a, C, T> {
+    /// Add an ad-hoc question alongside the typed set. It is available through
+    /// [`Answered::response`] but not as a field of `T`.
+    pub fn question(mut self, name: impl Into<String>, question: impl Into<Question>) -> Self {
+        self.inner = self.inner.question(name, question);
+        self
+    }
+
+    /// Model override for this call; otherwise the client default is used.
+    pub fn model(mut self, model: impl Into<String>) -> Self {
+        self.inner = self.inner.model(model);
+        self
+    }
+
+    /// A retry policy overriding the client-level value for this call only.
+    pub fn retry(mut self, retry: RetryPolicy) -> Self {
+        self.inner = self.inner.retry(retry);
+        self
+    }
+
+    /// An HTTP timeout overriding the client-level value for this call only.
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.inner = self.inner.timeout(timeout);
+        self
+    }
+
+    /// An additional request header for this call.
+    pub fn header<N, V>(mut self, name: N, value: V) -> Self
+    where
+        N: TryInto<HeaderName>,
+        N::Error: fmt::Display,
+        V: TryInto<HeaderValue>,
+        V::Error: fmt::Display,
+    {
+        self.inner = self.inner.header(name, value);
+        self
+    }
+
+    /// An additional top-level request-body field; see [`SystemOneRequest::extra_body`].
+    pub fn extra_body(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
+        self.inner = self.inner.extra_body(key, value);
+        self
+    }
+
+    /// The underlying untyped request, for anything not exposed here.
+    pub fn into_inner(self) -> SystemOneRequest<'a, C> {
+        self.inner
+    }
+}
+
+impl<'a, T: Questions> AskRequest<'a, TypeSafeClient, T> {
+    /// Send the request and parse the answers into `T`.
+    ///
+    /// # Errors
+    ///
+    /// Everything [`SystemOneRequest::send`] can return, plus [`Error::Answer`] when the
+    /// response cannot be converted into `T`.
+    pub async fn send(self) -> Result<T> {
+        Ok(self.send_full().await?.answers)
+    }
+
+    /// Send the request and return the parsed `T` together with the full response.
+    pub async fn send_full(self) -> Result<Answered<T>> {
+        let response = self.inner.send().await?;
+        let answers = T::from_response(&response)?;
+        Ok(Answered { answers, response })
+    }
+}
+
+impl<'a, T: Questions + 'a> IntoFuture for AskRequest<'a, TypeSafeClient, T> {
+    type Output = Result<T>;
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
 
     fn into_future(self) -> Self::IntoFuture {

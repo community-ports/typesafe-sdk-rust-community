@@ -18,9 +18,9 @@ CI runs the following on Linux, macOS, and Windows; please run them locally firs
 
 ```sh
 cargo fmt --all -- --check
-cargo clippy --all-features --all-targets -- -D warnings
+cargo clippy --workspace --all-features --all-targets -- -D warnings
 cargo clippy --no-default-features --features native-tls -- -D warnings
-cargo test --all-features --locked
+cargo test --workspace --all-features --locked
 RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps
 cargo deny check   # cargo install cargo-deny
 ```
@@ -32,9 +32,11 @@ GitHub Actions are pinned to commit SHAs and Dependabot keeps the pins current.
 
 Releases go through crates.io Trusted Publishing; no registry token is stored anywhere.
 
-1. Bump `version` in `Cargo.toml` and move the `[Unreleased]` notes into a `## [X.Y.Z] - date`
-   section in `CHANGELOG.md`. Commit and push to `main`.
+1. Bump `version` in `Cargo.toml` and `macros/Cargo.toml` (the main crate pins the macros
+   crate with `=X.Y.Z`, so they move together) and move the `[Unreleased]` notes into a
+   `## [X.Y.Z] - date` section in `CHANGELOG.md`. Commit and push to `main`.
 2. Create a signed tag and push it: `git tag -s vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`.
-3. The `Release` workflow checks the tag against `Cargo.toml` and the changelog, waits for a
-   maintainer to approve the `release` environment, runs the tests, publishes with an OIDC
-   token, and creates the GitHub release from the changelog section.
+3. The `Release` workflow checks the tag against both `Cargo.toml` files and the changelog,
+   waits for a maintainer to approve the `release` environment, runs the tests, publishes the
+   macros crate and then the main crate with an OIDC token (skipping any version already on
+   crates.io), and creates the GitHub release from the changelog section.

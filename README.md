@@ -57,6 +57,95 @@ async fn main() -> typesafeai_sdk_community::Result<()> {
 The crate is `typesafeai-sdk-community` and imports as `typesafeai_sdk_community`. The `-community`
 suffix marks it as an independent port; it is not the official `typesafe-sdk` package name.
 
+## Typed questions
+
+This is where the community edition goes beyond the official SDKs. Enums can be the labels of
+a choice or the rubric of a score, and a struct can be a whole question set, so a request and
+its answers are checked by the compiler instead of matched on strings:
+
+```rust
+use typesafeai_sdk_community::{ChoiceLabels, NoulAnswer, Questions, ScoreLevels, TypeSafeClient, TypedChoice, TypedScore};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ChoiceLabels)]
+enum Team {
+    #[choice(describe = "Charges, invoices, refunds")]
+    Billing,
+    #[choice(describe = "Errors or how-to questions")]
+    Support,
+    #[choice(describe = "None of the above clearly apply")]
+    NoMatch,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ScoreLevels)]
+enum Urgency { #[score("Can wait")] Low, #[score("This week")] Medium, #[score("Today")] High }
+
+#[derive(Debug, Questions)]
+struct Triage {
+    #[choice("Which team should handle `message`?")]
+    team: TypedChoice<Team>,
+    #[score("How urgent is `message`?")]
+    urgency: TypedScore<Urgency>,
+    #[noul("Does `message` ask for a refund?")]
+    refund: NoulAnswer,
+    #[noul("Is `message` written in a language other than English?")]
+    non_english: bool,
+}
+
+let triage = client.ask::<Triage>(state).send().await?;   // one request, all fields
+match triage.team.choice {                                 // exhaustive match on a real enum
+    Team::Billing => { /* ... */ }
+    Team::Support => { /* ... */ }
+    Team::NoMatch => { /* ... */ }
+}
+let p_urgent = triage.urgency.probability_at_least(Urgency::Medium);
+```
+
+Field types choose what you get back: `NoulAnswer`, `bool`, or `f64` for a noul; `ChoiceAnswer`,
+`TypedChoice<T>`, or a bare `T: ChoiceLabels` for a choice; `ScoreAnswer`, `TypedScore<T>`,
+`T: ScoreLevels`, or `f64` for a score; `Answer` for the raw value; and `Option<...>` of any of
+them to tolerate a missing answer. A `#[choice]` attribute on a noul-shaped field is a compile
+error, as is a misspelled label. Instructions and descriptions accept any expression that is
+`Into<Value>`, so `json!({...})` works anywhere a string does.
+
+Attribute reference:
+
+| Attribute | On | Arguments |
+| --- | --- | --- |
+| `#[choice(...)]` | enum | `rename_all = "snake_case"` (default; also lowercase, UPPERCASE, kebab-case, camelCase, PascalCase, SCREAMING_SNAKE_CASE, none) |
+| `#[choice(...)]` | variant | `label = "..."`, `describe = <expr>` |
+| `#[score(...)]` | variant | `"description"` or `describe = <expr>`; defaults to the humanized variant name |
+| `#[noul(...)]` | field | `"instructions"`, `name = "..."`, `when_true = <expr>`, `when_false = <expr>` |
+| `#[choice(...)]` | field | `"instructions"`, `name = "..."`, `labels = ["a", ("b", "description")]` for untyped fields |
+| `#[score(...)]` | field | `"instructions"`, `name = "..."`, `levels = ["low", "high"]` for untyped fields |
+
+`Choice::of::<Team>("...")` and `Score::of::<Urgency>("...")` build single questions from an enum,
+`response.choice_as::<Team>("team")` and `response.parse::<Triage>()` type an untyped response,
+and everything is available on the blocking client too.
+
+## Decisions
+
+The `decision` module turns probabilities into actions the way the
+[confidence docs](https://docs.typesafe.ai/confidence) describe, with thresholds you own:
+
+```rust
+use typesafeai_sdk_community::decision::{Bands, Decision, Gate, Outcome};
+
+match triage.refund.decide_with(Bands::new(0.3, 0.7)) {
+    Decision::Yes => refund(),
+    Decision::No => {}
+    Decision::Uncertain => ask_customer(),
+}
+match triage.team.gate(Gate::new(0.85, 0.6)) {
+    Outcome::Accept => route(triage.team.choice),
+    Outcome::Review => route_and_flag(triage.team.choice),
+    Outcome::Reject => manual_triage(),
+}
+```
+
+Also available: `margin()` (gap between the top two labels), `top(n)`, `entropy()` and
+`normalized_entropy()` on choices; `probability_at_least(level)`, `std_dev()`, and
+`normalized()` on scores; `certainty()` on nouls.
+
 ## Questions
 
 | Need | Primitive | Answer |
@@ -203,6 +292,7 @@ RUST_LOG=typesafeai_sdk_community=debug cargo run --example models
 
 | Feature | Default | Effect |
 | --- | --- | --- |
+| `derive` | yes | The `ChoiceLabels`, `ScoreLevels`, and `Questions` derive macros |
 | `rustls` | yes | TLS via rustls with the platform certificate verifier |
 | `native-tls` | no | TLS via the operating system's TLS library |
 | `blocking` | no | The synchronous `blocking::TypeSafeClient` |
@@ -210,11 +300,11 @@ RUST_LOG=typesafeai_sdk_community=debug cargo run --example models
 ## Development
 
 ```sh
-cargo test --all-features          # offline; live tests self-skip without TYPESAFE_API_KEY
+cargo test --workspace --all-features   # offline; live tests self-skip without TYPESAFE_API_KEY
 TYPESAFE_API_KEY=... cargo test --all-features --test live
-cargo clippy --all-features --all-targets -- -D warnings
+cargo clippy --workspace --all-features --all-targets -- -D warnings
 cargo fmt --all
-cargo run --example basic
+cargo run --example typed
 ```
 
 Minimum supported Rust version: 1.88.

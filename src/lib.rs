@@ -40,8 +40,38 @@
 //! }
 //! ```
 //!
+//! # Typed questions
+//!
+//! Enums can be choice labels and score rubrics, and a struct can be a whole question set; see
+//! the [`typed`] module. The [`decision`] module turns probabilities into decisions.
+//!
+//! ```no_run
+//! use typesafeai_sdk_community::{ChoiceLabels, NoulAnswer, Questions, TypeSafeClient, TypedChoice};
+//!
+//! #[derive(Clone, Copy, Debug, PartialEq, Eq, ChoiceLabels)]
+//! enum Tone { Angry, Calm, Excited }
+//!
+//! #[derive(Debug, Questions)]
+//! struct Triage {
+//!     #[noul("Is this message about billing?")]
+//!     billing: NoulAnswer,
+//!     #[choice("What is the tone of the message?")]
+//!     tone: TypedChoice<Tone>,
+//! }
+//!
+//! # async fn run() -> typesafeai_sdk_community::Result<()> {
+//! let client = TypeSafeClient::new()?;
+//! let triage = client.ask::<Triage>("I was charged twice. Please help.").send().await?;
+//! if triage.tone.choice == Tone::Angry && triage.billing.decide(0.8) {
+//!     // escalate
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! # Feature flags
 //!
+//! - `derive` *(default)*: the `ChoiceLabels`, `ScoreLevels`, and `Questions` derive macros.
 //! - `rustls` *(default)*: TLS via rustls with the platform certificate verifier.
 //! - `native-tls`: TLS via the operating system's TLS library.
 //! - `blocking`: the synchronous [`blocking::TypeSafeClient`].
@@ -68,6 +98,8 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub mod constants;
+pub mod decision;
+pub mod typed;
 
 mod client;
 mod config;
@@ -82,9 +114,10 @@ mod transport;
 #[cfg_attr(docsrs, doc(cfg(feature = "blocking")))]
 pub mod blocking;
 
-pub use client::{ClientBuilder, ListModelsRequest, Models, SystemOneRequest, TypeSafeClient};
+pub use client::{AskRequest, ClientBuilder, ListModelsRequest, Models, SystemOneRequest, TypeSafeClient};
 pub use error::{
-    ApiError, ApiErrorKind, ConnectionError, Error, ResponseBody, ResponseValidationError, Result, TimeoutError,
+    AnswerError, ApiError, ApiErrorKind, ConnectionError, Error, ResponseBody, ResponseValidationError, Result,
+    TimeoutError,
 };
 pub use question::{Choice, Noul, NoulCriteria, Question, Score};
 pub use response::{
@@ -92,6 +125,13 @@ pub use response::{
     SystemOneResponse, Usage,
 };
 pub use retry::{RetryPolicy, RetryPredicate};
+pub use typed::{Answered, TypedChoice, TypedScore};
+
+/// Derive macros: `#[derive(ChoiceLabels)]`, `#[derive(ScoreLevels)]`, `#[derive(Questions)]`.
+/// See the [`typed`] module for the attribute reference.
+#[cfg(feature = "derive")]
+#[cfg_attr(docsrs, doc(cfg(feature = "derive")))]
+pub use typesafeai_sdk_community_macros::{ChoiceLabels, Questions, ScoreLevels};
 
 /// Re-exported for building structured `state`, `instructions`, and `criteria` values.
 pub use serde_json::{Map, Value, json};

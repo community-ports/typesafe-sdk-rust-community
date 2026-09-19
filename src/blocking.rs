@@ -28,13 +28,15 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::client::{
-    ClientOptions, ListModelsRequest, Models, SystemOneParams, SystemOneRequest, client_builder_options, insert_header,
+    AskRequest, ClientOptions, ListModelsRequest, Models, SystemOneParams, SystemOneRequest, client_builder_options,
+    insert_header,
 };
 use crate::config::Config;
 use crate::error::{Error, Result};
 use crate::response::{ListModelsResponse, RawResponse, SystemOneResponse};
 use crate::retry::RetryPolicy;
 use crate::transport::{Custom, Decode, PreparedRequest, send_blocking};
+use crate::typed::{Answered, Questions};
 
 struct Inner {
     config: Config,
@@ -78,6 +80,11 @@ impl TypeSafeClient {
     /// [`TypeSafeClient::system_one`](crate::TypeSafeClient::system_one).
     pub fn system_one(&self, state: impl Into<Value>) -> SystemOneRequest<'_, Self> {
         SystemOneRequest { client: self, params: SystemOneParams::new(state.into()) }
+    }
+
+    /// Ask a typed question set; see [`TypeSafeClient::ask`](crate::TypeSafeClient::ask).
+    pub fn ask<T: Questions>(&self, state: impl Into<Value>) -> AskRequest<'_, Self, T> {
+        AskRequest { inner: self.system_one(state).questions(T::questions()), _answers: std::marker::PhantomData }
     }
 
     /// Access the Models API resource.
@@ -169,6 +176,20 @@ impl SystemOneRequest<'_, TypeSafeClient> {
     pub fn send_raw(mut self) -> Result<RawResponse> {
         let request = self.params.prepare(&self.client.inner.config)?;
         self.client.dispatch(request, self.params.retry.as_ref())
+    }
+}
+
+impl<T: Questions> AskRequest<'_, TypeSafeClient, T> {
+    /// Send the request and parse the answers into `T`.
+    pub fn send(self) -> Result<T> {
+        Ok(self.send_full()?.answers)
+    }
+
+    /// Send the request and return the parsed `T` together with the full response.
+    pub fn send_full(self) -> Result<Answered<T>> {
+        let response = self.inner.send()?;
+        let answers = T::from_response(&response)?;
+        Ok(Answered { answers, response })
     }
 }
 

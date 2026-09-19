@@ -52,6 +52,12 @@ pub enum Error {
     /// A request exceeded its configured timeout.
     #[error(transparent)]
     Timeout(#[from] TimeoutError),
+
+    /// A successful response could not be converted into the requested typed answers: a
+    /// question was missing, had a different kind, or used a label or level the enum does not
+    /// know.
+    #[error(transparent)]
+    Answer(#[from] AnswerError),
 }
 
 impl Error {
@@ -106,6 +112,44 @@ impl From<ResponseValidationError> for Error {
     fn from(error: ResponseValidationError) -> Self {
         Error::ResponseValidation(Box::new(error))
     }
+}
+
+/// A response answer could not be converted into a typed field.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum AnswerError {
+    /// The response had no answer under this question name.
+    #[error("Answer {name:?} is missing from the response.")]
+    Missing {
+        /// The question name.
+        name: String,
+    },
+    /// The answer is a different kind than the field expects.
+    #[error("Answer {name:?} is a {actual} answer, but a {expected} answer was expected.")]
+    WrongType {
+        /// The question name.
+        name: String,
+        /// The kind the field expects.
+        expected: &'static str,
+        /// The kind the response contained.
+        actual: &'static str,
+    },
+    /// A choice label in the response is not a variant of the target enum.
+    #[error("Answer {name:?} uses label {label:?}, which the target enum does not define.")]
+    UnknownLabel {
+        /// The question name.
+        name: String,
+        /// The unrecognized label.
+        label: String,
+    },
+    /// A score level in the response is not a variant of the target enum.
+    #[error("Answer {name:?} uses level {level}, which the target enum does not define.")]
+    UnknownLevel {
+        /// The question name.
+        name: String,
+        /// The unrecognized level.
+        level: u32,
+    },
 }
 
 /// The decoded body of an HTTP response, kept for error reporting.

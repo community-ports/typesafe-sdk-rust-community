@@ -1,6 +1,6 @@
 [package]
 name = "typesafeai-sdk-community"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Community-built Rust SDK for the TypeSafe AI API (System One / Jev)."
@@ -13,8 +13,13 @@ keywords = ["typesafe", "typesafe-ai", "jev", "sdk", "ai"]
 categories = ["api-bindings", "web-programming::http-client"]
 exclude = [".github/", "docs/"]
 
+[workspace]
+members = ["macros"]
+
 [features]
-default = ["rustls"]
+default = ["rustls", "derive"]
+# The ChoiceLabels, ScoreLevels, and Questions derive macros.
+derive = ["dep:typesafeai-sdk-community-macros"]
 # TLS via rustls with the platform certificate verifier (reqwest's default).
 rustls = ["reqwest/rustls"]
 # TLS via the operating system's native TLS library.
@@ -23,6 +28,7 @@ native-tls = ["reqwest/native-tls"]
 blocking = ["reqwest/blocking"]
 
 [dependencies]
+typesafeai-sdk-community-macros = { version = "=0.2.0", path = "macros", optional = true }
 reqwest = { version = "0.13", default-features = false, features = ["http2", "charset", "system-proxy"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -524,6 +524,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "heck"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
+
+[[package]]
 name = "http"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1917,7 +1923,7 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "typesafeai-sdk-community"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fastrand",
  "httpdate",
@@ -1930,6 +1936,17 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "typesafeai-sdk-community-macros",
+]
+
+[[package]]
+name = "typesafeai-sdk-community-macros"
+version = "0.2.0"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]

@@ -74,6 +74,15 @@ pub enum Answer {
 }
 
 impl Answer {
+    /// The wire `type` of this answer: `noul`, `choice`, or `score`.
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Answer::Noul(_) => "noul",
+            Answer::Choice(_) => "choice",
+            Answer::Score(_) => "score",
+        }
+    }
+
     /// The answer as a [`NoulAnswer`], if it is one.
     pub fn as_noul(&self) -> Option<&NoulAnswer> {
         match self {
