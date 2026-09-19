@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use serde_json::json;
 use support::{MockServer, Reply, models_body, system_one_body};
-use typesafe_sdk::blocking::TypeSafeClient;
-use typesafe_sdk::{ApiErrorKind, Choice, Error, Noul, RetryPolicy};
+use typesafeai_sdk_community::blocking::TypeSafeClient;
+use typesafeai_sdk_community::{ApiErrorKind, Choice, Error, Noul, RetryPolicy};
 
 fn client(server: &MockServer, policy: RetryPolicy) -> TypeSafeClient {
     TypeSafeClient::builder().api_key("sk-test").base_url(server.url()).retry(policy).build().unwrap()

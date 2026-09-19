@@ -19,7 +19,7 @@ pub type RetryPredicate = Arc<dyn Fn(&Error) -> bool + Send + Sync>;
 ///
 /// ```
 /// use std::time::Duration;
-/// use typesafe_sdk::{RetryPolicy, TypeSafeClient};
+/// use typesafeai_sdk_community::{RetryPolicy, TypeSafeClient};
 ///
 /// let policy = RetryPolicy::default()
 ///     .max_retries(3)

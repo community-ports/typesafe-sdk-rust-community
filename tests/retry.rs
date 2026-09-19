@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 use support::{MockServer, Reply, system_one_body};
-use typesafe_sdk::{Error, Noul, RetryPolicy, TypeSafeClient};
+use typesafeai_sdk_community::{Error, Noul, RetryPolicy, TypeSafeClient};
 
 fn fast_policy() -> RetryPolicy {
     RetryPolicy::default()

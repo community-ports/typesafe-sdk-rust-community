@@ -15,17 +15,17 @@ generated text. Learn what TypeSafe is and how to design questions in the
 
 ```toml
 [dependencies]
-typesafe-sdk = "0.1"
+typesafeai-sdk-community = "0.1"
 tokio = { version = "1", features = ["full"] }
 ```
 
 Set `TYPESAFE_API_KEY` in your environment, then:
 
 ```rust
-use typesafe_sdk::{Choice, Noul, Score, TypeSafeClient, json};
+use typesafeai_sdk_community::{Choice, Noul, Score, TypeSafeClient, json};
 
 #[tokio::main]
-async fn main() -> typesafe_sdk::Result<()> {
+async fn main() -> typesafeai_sdk_community::Result<()> {
     let client = TypeSafeClient::new()?;
 
     let response = client
@@ -49,8 +49,8 @@ async fn main() -> typesafe_sdk::Result<()> {
 }
 ```
 
-The crate is `typesafe-sdk` and imports as `typesafe_sdk`, mirroring the Python package and
-module names.
+The crate is `typesafeai-sdk-community` and imports as `typesafeai_sdk_community`. The `-community`
+suffix marks it as an independent port; it is not the official `typesafe-sdk` package name.
 
 ## Questions
 
@@ -65,7 +65,7 @@ macro. `Question::Custom` sends an arbitrary JSON object verbatim for question t
 does not model yet.
 
 ```rust
-use typesafe_sdk::{Choice, Noul, Score, json};
+use typesafeai_sdk_community::{Choice, Noul, Score, json};
 
 let spam = Noul::new("Is this message spam?")
     .when_true("Unsolicited advertising")
@@ -88,7 +88,7 @@ the undecoded bytes with `send_raw()`:
 
 ```rust
 #[derive(serde::Deserialize)]
-struct Answers { billing: typesafe_sdk::NoulAnswer }
+struct Answers { billing: typesafeai_sdk_community::NoulAnswer }
 #[derive(serde::Deserialize)]
 struct Mine { model: String, answers: Answers }
 
@@ -113,7 +113,7 @@ builder (`.model(..)`, `.timeout(..)`, `.retry(..)`, `.header(..)`, `.extra_body
 
 ```rust
 use std::time::Duration;
-use typesafe_sdk::{RetryPolicy, TypeSafeClient};
+use typesafeai_sdk_community::{RetryPolicy, TypeSafeClient};
 
 let client = TypeSafeClient::builder()
     .api_key("sk-...")
@@ -132,7 +132,7 @@ two retries after the initial attempt, exponential backoff from 0.5s to 5s with 
 attempts carry an `X-TypeSafe-Retry-Count` header. Tune or disable this with `RetryPolicy`:
 
 ```rust
-use typesafe_sdk::{Error, RetryPolicy};
+use typesafeai_sdk_community::{Error, RetryPolicy};
 
 let policy = RetryPolicy::default()
     .max_retries(5)
@@ -145,7 +145,7 @@ let none = RetryPolicy::none();
 
 ## Errors
 
-Every operation returns `typesafe_sdk::Result<T>`; the error is one enum:
+Every operation returns `typesafeai_sdk_community::Result<T>`; the error is one enum:
 
 | Variant | Meaning |
 | --- | --- |
@@ -171,12 +171,12 @@ match client.system_one("...").question("q", Noul::new("?")).send().await {
 Enable the `blocking` feature for a synchronous client with the same API:
 
 ```toml
-typesafe-sdk = { version = "0.1", features = ["blocking"] }
+typesafeai-sdk-community = { version = "0.1", features = ["blocking"] }
 ```
 
 ```rust
-use typesafe_sdk::blocking::TypeSafeClient;
-use typesafe_sdk::Noul;
+use typesafeai_sdk_community::blocking::TypeSafeClient;
+use typesafeai_sdk_community::Noul;
 
 let client = TypeSafeClient::new()?;
 let response = client.system_one("...").question("billing", Noul::new("Billing?")).send()?;
@@ -186,12 +186,12 @@ Like `reqwest::blocking`, it must not be used from inside an async runtime.
 
 ## Logging
 
-The SDK emits `tracing` events under the `typesafe_sdk` target: an `INFO` line per response
+The SDK emits `tracing` events under the `typesafeai_sdk_community` target: an `INFO` line per response
 and retry, and `DEBUG` lines with headers and bodies. Credential-bearing headers are redacted;
 bodies are not. Install any subscriber to see them, for example:
 
 ```sh
-RUST_LOG=typesafe_sdk=debug cargo run --example models
+RUST_LOG=typesafeai_sdk_community=debug cargo run --example models
 ```
 
 ## Feature flags

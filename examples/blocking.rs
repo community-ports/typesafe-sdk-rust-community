@@ -4,10 +4,10 @@
 //! TYPESAFE_API_KEY=... cargo run --example blocking --features blocking
 //! ```
 
-use typesafe_sdk::blocking::TypeSafeClient;
-use typesafe_sdk::{Choice, Noul};
+use typesafeai_sdk_community::blocking::TypeSafeClient;
+use typesafeai_sdk_community::{Choice, Noul};
 
-fn main() -> typesafe_sdk::Result<()> {
+fn main() -> typesafeai_sdk_community::Result<()> {
     let client = TypeSafeClient::new()?;
 
     let response = client

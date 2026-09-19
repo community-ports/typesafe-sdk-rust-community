@@ -139,9 +139,9 @@ struct Inner {
 /// The client is cheap to clone and shares its connection pool between clones.
 ///
 /// ```no_run
-/// use typesafe_sdk::{Choice, Noul, TypeSafeClient};
+/// use typesafeai_sdk_community::{Choice, Noul, TypeSafeClient};
 ///
-/// # async fn run() -> typesafe_sdk::Result<()> {
+/// # async fn run() -> typesafeai_sdk_community::Result<()> {
 /// let client = TypeSafeClient::new()?; // reads TYPESAFE_API_KEY
 /// let result = client
 ///     .system_one("I was charged twice. Please help.")

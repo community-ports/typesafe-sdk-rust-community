@@ -1,15 +1,15 @@
 //! `tracing` output with credential redaction.
 //!
-//! The SDK emits events under the `typesafe_sdk` target and never installs a subscriber. To see
+//! The SDK emits events under the `typesafeai_sdk_community` target and never installs a subscriber. To see
 //! them, install one in your application, for example with `tracing-subscriber` and
-//! `RUST_LOG=typesafe_sdk=debug`. Secret headers are redacted; request and response bodies are
+//! `RUST_LOG=typesafeai_sdk_community=debug`. Secret headers are redacted; request and response bodies are
 //! logged at `DEBUG` unredacted.
 
 use reqwest::header::HeaderMap;
 
 use crate::constants::SECRET_HEADERS;
 
-pub(crate) const TARGET: &str = "typesafe_sdk";
+pub(crate) const TARGET: &str = "typesafeai_sdk_community";
 
 fn is_secret(name: &str) -> bool {
     let lowered = name.to_ascii_lowercase();

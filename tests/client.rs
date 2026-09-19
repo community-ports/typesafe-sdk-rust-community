@@ -4,7 +4,9 @@ use std::time::Duration;
 
 use serde::Deserialize;
 use support::{MockServer, Reply, models_body, system_one_body};
-use typesafe_sdk::{ApiErrorKind, Choice, Error, Noul, Question, RetryPolicy, Score, TypeSafeClient, VERSION, json};
+use typesafeai_sdk_community::{
+    ApiErrorKind, Choice, Error, Noul, Question, RetryPolicy, Score, TypeSafeClient, VERSION, json,
+};
 
 fn client(server: &MockServer) -> TypeSafeClient {
     TypeSafeClient::builder()
@@ -101,8 +103,8 @@ async fn request_wire_format() {
     assert_eq!(request.header("authorization"), Some("Bearer sk-test"));
     assert_eq!(request.header("accept"), Some("application/json"));
     assert_eq!(request.header("content-type"), Some("application/json"));
-    assert_eq!(request.header("user-agent"), Some(format!("typesafe-sdk/{VERSION}").as_str()));
-    assert_eq!(request.header("x-typesafe-sdk"), Some(format!("typesafe-sdk/{VERSION}").as_str()));
+    assert_eq!(request.header("user-agent"), Some(format!("typesafeai-sdk-community/{VERSION}").as_str()));
+    assert_eq!(request.header("x-typesafe-sdk"), Some(format!("typesafeai-sdk-community/{VERSION}").as_str()));
     assert!(request.header("x-typesafe-runtime").unwrap().starts_with("rust/"));
     assert_eq!(request.header("x-typesafe-retry-count"), None);
     assert_eq!(request.header("x-default"), Some("override"));
@@ -326,8 +328,8 @@ async fn send_as_decodes_custom_types_and_send_raw_keeps_bytes() {
     }
     #[derive(Debug, Deserialize)]
     struct MyAnswers {
-        billing: typesafe_sdk::NoulAnswer,
-        urgency: typesafe_sdk::ScoreAnswer,
+        billing: typesafeai_sdk_community::NoulAnswer,
+        urgency: typesafeai_sdk_community::ScoreAnswer,
     }
 
     let server = MockServer::start();
@@ -414,7 +416,10 @@ async fn custom_http_client_and_clone_share_state() {
     let client = TypeSafeClient::builder().api_key("sk-test").base_url(server.url()).http_client(http).build().unwrap();
     let clone = client.clone();
     clone.models().list().send().await.unwrap();
-    assert_eq!(server.last_request().header("user-agent"), Some(format!("typesafe-sdk/{VERSION}").as_str()));
+    assert_eq!(
+        server.last_request().header("user-agent"),
+        Some(format!("typesafeai-sdk-community/{VERSION}").as_str())
+    );
     assert_eq!(clone.base_url(), server.url());
     assert!(format!("{client:?}").contains("TypeSafeClient"));
     assert!(!format!("{client:?}").contains("sk-test"));

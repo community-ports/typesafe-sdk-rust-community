@@ -10,10 +10,10 @@
 //! Set `TYPESAFE_API_KEY` in your environment, then:
 //!
 //! ```no_run
-//! use typesafe_sdk::{Choice, Noul, Score, TypeSafeClient, json};
+//! use typesafeai_sdk_community::{Choice, Noul, Score, TypeSafeClient, json};
 //!
 //! #[tokio::main]
-//! async fn main() -> typesafe_sdk::Result<()> {
+//! async fn main() -> typesafeai_sdk_community::Result<()> {
 //!     let client = TypeSafeClient::new()?;
 //!
 //!     let response = client
@@ -58,10 +58,10 @@
 //!
 //! # Logging
 //!
-//! The SDK emits [`tracing`] events under the `typesafe_sdk` target: one `INFO` line per
+//! The SDK emits [`tracing`] events under the `typesafeai_sdk_community` target: one `INFO` line per
 //! response and retry, and `DEBUG` lines with headers and bodies. Credential-bearing headers are
 //! redacted; bodies are not. Install any subscriber to see them, for example
-//! `RUST_LOG=typesafe_sdk=debug` with `tracing-subscriber`'s `EnvFilter`.
+//! `RUST_LOG=typesafeai_sdk_community=debug` with `tracing-subscriber`'s `EnvFilter`.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms, unreachable_pub)]

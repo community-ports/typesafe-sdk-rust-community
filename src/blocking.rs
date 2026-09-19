@@ -4,10 +4,10 @@
 //! panics there, exactly as `reqwest::blocking` does. Use [`crate::TypeSafeClient`] instead.
 //!
 //! ```no_run
-//! use typesafe_sdk::blocking::TypeSafeClient;
-//! use typesafe_sdk::{Choice, Noul};
+//! use typesafeai_sdk_community::blocking::TypeSafeClient;
+//! use typesafeai_sdk_community::{Choice, Noul};
 //!
-//! # fn run() -> typesafe_sdk::Result<()> {
+//! # fn run() -> typesafeai_sdk_community::Result<()> {
 //! let client = TypeSafeClient::new()?; // reads TYPESAFE_API_KEY
 //! let result = client
 //!     .system_one("I was charged twice. Please help.")

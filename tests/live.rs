@@ -1,7 +1,7 @@
 //! Live API tests. They run only when `TYPESAFE_API_KEY` is set and are skipped otherwise, so
 //! `cargo test` stays offline by default.
 
-use typesafe_sdk::{Choice, Noul, Score, TypeSafeClient, json};
+use typesafeai_sdk_community::{Choice, Noul, Score, TypeSafeClient, json};
 
 fn live_client() -> Option<TypeSafeClient> {
     if std::env::var("TYPESAFE_API_KEY").ok().filter(|key| !key.trim().is_empty()).is_none() {

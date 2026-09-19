@@ -1,14 +1,14 @@
 //! List the models available to the account, with SDK logging enabled.
 //!
 //! ```sh
-//! TYPESAFE_API_KEY=... RUST_LOG=typesafe_sdk=debug cargo run --example models
+//! TYPESAFE_API_KEY=... RUST_LOG=typesafeai_sdk_community=debug cargo run --example models
 //! ```
 
 use tracing_subscriber::EnvFilter;
-use typesafe_sdk::TypeSafeClient;
+use typesafeai_sdk_community::TypeSafeClient;
 
 #[tokio::main]
-async fn main() -> typesafe_sdk::Result<()> {
+async fn main() -> typesafeai_sdk_community::Result<()> {
     tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).init();
 
     let client = TypeSafeClient::new()?;

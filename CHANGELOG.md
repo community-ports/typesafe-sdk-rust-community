@@ -27,9 +27,9 @@ Initial port of [typesafe-sdk-python](https://github.com/typesafe-ai/typesafe-sd
 - `Error` enum with `ApiError` (classified by status, with `retry_after`), `ResponseValidationError`
   (with dotted `field_path`), `ConnectionError`, and `TimeoutError`.
 - Configuration from `TYPESAFE_API_KEY`, `TYPESAFE_BASE_URL`, and `TYPESAFE_DEFAULT_MODEL`.
-- `tracing` output under the `typesafe_sdk` target with secret-header redaction.
+- `tracing` output under the `typesafeai_sdk_community` target with secret-header redaction.
 - `X-TypeSafe-SDK`, `X-TypeSafe-Runtime` (runtime-detected OS and architecture), and
   `User-Agent` identification headers.
 
-[Unreleased]: https://github.com/community-ports/typesafe-sdk-rust-community/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/community-ports/typesafe-sdk-rust-community/releases/tag/v0.1.0
+[Unreleased]: https://github.com/community-ports/typesafeai-sdk-rust-community/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/community-ports/typesafeai-sdk-rust-community/releases/tag/v0.1.0

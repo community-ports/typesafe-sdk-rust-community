@@ -4,10 +4,10 @@
 //! TYPESAFE_API_KEY=... cargo run --example basic
 //! ```
 
-use typesafe_sdk::{Choice, Noul, Score, TypeSafeClient, json};
+use typesafeai_sdk_community::{Choice, Noul, Score, TypeSafeClient, json};
 
 #[tokio::main]
-async fn main() -> typesafe_sdk::Result<()> {
+async fn main() -> typesafeai_sdk_community::Result<()> {
     let client = TypeSafeClient::new()?;
 
     let response = client

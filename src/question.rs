@@ -12,7 +12,7 @@
 //! [`serde_json::Value`]: plain strings, or structured JSON built with [`serde_json::json!`].
 //!
 //! ```
-//! use typesafe_sdk::{Choice, Noul, Score, json};
+//! use typesafeai_sdk_community::{Choice, Noul, Score, json};
 //!
 //! let billing = Noul::new("Is this message about billing?")
 //!     .when_true("The customer mentions charges, invoices, or refunds.")

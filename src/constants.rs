@@ -27,7 +27,7 @@ pub(crate) const MAX_ERROR_BODY_LENGTH: usize = 200;
 pub(crate) const SYSTEM_ONE_PATH: &str = "/v1/systemone";
 pub(crate) const MODELS_PATH: &str = "/v1/models";
 
-pub(crate) const SDK_NAME: &str = "typesafe-sdk";
+pub(crate) const SDK_NAME: &str = "typesafeai-sdk-community";
 pub(crate) const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub(crate) const JSON_CONTENT_TYPE: &str = "application/json";
 
@@ -48,7 +48,7 @@ pub(crate) fn runtime() -> String {
     format!("rust/{} ({}; {})", env!("TYPESAFE_SDK_RUSTC_VERSION"), std::env::consts::OS, std::env::consts::ARCH)
 }
 
-/// The `User-Agent` / `X-TypeSafe-SDK` value, e.g. `typesafe-sdk/0.1.0`.
+/// The `User-Agent` / `X-TypeSafe-SDK` value, e.g. `typesafeai-sdk-community/0.1.0`.
 pub(crate) fn sdk_identifier() -> String {
     format!("{SDK_NAME}/{SDK_VERSION}")
 }
